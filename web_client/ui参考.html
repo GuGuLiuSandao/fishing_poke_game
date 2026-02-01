@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>钓鱼 (Fishing) - 沉浸式对局</title>
+    <!-- 引入 React 和 ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <!-- 引入 Babel 用于解析 JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a1a;
+            color: white;
+            overflow: hidden; /* 防止滚动 */
+            touch-action: none; /* 防止移动端下拉刷新影响搓牌 */
+        }
+
+        /* 牌桌纹理 */
+        .poker-table {
+            background: radial-gradient(circle, #35654d 0%, #204030 100%);
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.6);
+            border: 15px solid #3e2723;
+            border-radius: 100px;
+            position: relative;
+        }
+
+        /* 扑克牌样式 */
+        .card {
+            background-color: white;
+            border-radius: 6px;
+            box-shadow: 1px 1px 4px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 4px;
+            font-weight: bold;
+            user-select: none;
+            transition: transform 0.2s;
+        }
+        .card-sm:hover {
+            transform: translateY(-5px);
+        }
+        .card-red { color: #d32f2f; }
+        .card-black { color: #212121; }
+        
+        .card-back {
+            background: repeating-linear-gradient(
+                45deg,
+                #606dbc,
+                #606dbc 10px,
+                #465298 10px,
+                #465298 20px
+            );
+            border: 2px solid white;
+        }
+
+        /* 玻璃拟态 */
+        .glass-panel {
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* 咪牌拇指遮挡效果 */
+        .thumb-mask {
+            background: radial-gradient(circle at center, #d1a980 0%, #8d6e63 100%);
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.5);
+            border: 2px solid rgba(0,0,0,0.1);
+        }
+
+        /* 历史记录滚动条 */
+        .history-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .history-scroll::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.1);
+        }
+        .history-scroll::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- 图标组件 ---
+        const IconUser = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+        );
+
+        const IconHistory = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                <path d="M3 3v5h5"></path>
+                <path d="M12 7v5l4 2"></path>
+            </svg>
+        );
+
+        const IconXCircle = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="15" y1="9" x2="9" y2="15"></line>
+                <line x1="9" y1="9" x2="15" y2="15"></line>
+            </svg>
+        );
+
+        const IconCheckCircle = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+        );
+
+        const IconEye = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+        );
+
+        const IconChevronDown = ({ size = 16, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+        );
+
+        const IconChevronUp = ({ size = 16, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
+        );
+
+        // --- 扑克牌组件 ---
+        const PlayingCard = ({ name, suit, hidden, folded, size = "md", showThumb = false, onThumbClick }) => {
+            if (hidden) {
+                return (
+                    <div className={`card card-back ${size === 'lg' ? 'w-48 h-72 rounded-xl border-4' : 'w-10 h-14 sm:w-14 sm:h-20'} ${folded ? 'opacity-50' : ''}`}></div>
+                );
+            }
+
+            const isRed = suit === '♥' || suit === '♦' || suit === '红';
+            let suitIcon = suit;
+            if(suit === 'Heats') suitIcon = '♥';
+            if(suit === 'Diamonds') suitIcon = '♦';
+            if(suit === 'Spades') suitIcon = '♠';
+            if(suit === 'Clubs') suitIcon = '♣';
+
+            const renderBigPatterns = () => {
+                if (size !== 'lg') return <div className="text-lg sm:text-2xl self-center">{suitIcon}</div>;
+                const count = parseInt(name) || 1; 
+                const gridStyles = count > 1 ? "grid grid-cols-2 gap-4 px-4 place-items-center" : "flex items-center justify-center";
+                return (
+                    <div className={`flex-1 ${gridStyles} text-4xl overflow-hidden`}>
+                         {Array.from({ length: isNaN(count) ? 1 : Math.min(count, 8) }).map((_, i) => (
+                             <div key={i}>{suitIcon}</div>
+                         ))}
+                    </div>
+                );
+            };
+
+            const cardClasses = size === 'lg' 
+                ? 'w-48 h-72 rounded-xl text-3xl p-4 shadow-2xl' 
+                : 'w-14 h-20 sm:w-16 sm:h-24 card-sm text-xs sm:text-sm';
+
+            return (
+                <div className={`card ${cardClasses} ${isRed ? 'card-red' : 'card-black'} ${folded ? 'opacity-50 grayscale' : ''} relative`}>
+                    <div className="flex flex-col items-center leading-none w-8">
+                        <div>{name}</div>
+                        <div className="text-sm mt-1">{suitIcon}</div>
+                    </div>
+                    {renderBigPatterns()}
+                    <div className="flex flex-col items-center leading-none self-end transform rotate-180 w-8">
+                        <div>{name}</div>
+                        <div className="text-sm mt-1">{suitIcon}</div>
+                    </div>
+                    {size === 'lg' && showThumb && (
+                        <div 
+                            onClick={(e) => { e.stopPropagation(); onThumbClick && onThumbClick(); }}
+                            className="absolute top-0 left-0 w-20 h-24 thumb-mask rounded-br-full cursor-pointer z-50 flex items-center justify-center"
+                            title="点击移开手指"
+                        >
+                            <span className="text-xs text-white/50 font-bold -rotate-45 select-none">点击移开</span>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // --- 咪牌模式组件 ---
+        const SqueezeMode = ({ cards, onClose }) => {
+            const [offset, setOffset] = useState({ x: 0, y: 0 });
+            const [isDragging, setIsDragging] = useState(false);
+            const [thumbHidden, setThumbHidden] = useState(false);
+            
+            const handlePointerDown = (e) => { setIsDragging(true); };
+
+            useEffect(() => {
+                const handlePointerMove = (e) => {
+                    if (!isDragging) return;
+                    setOffset(prev => ({ x: prev.x + e.movementX, y: prev.y + e.movementY }));
+                };
+                const handlePointerUp = () => { setIsDragging(false); };
+                if (isDragging) {
+                    window.addEventListener('pointermove', handlePointerMove);
+                    window.addEventListener('pointerup', handlePointerUp);
+                }
+                return () => {
+                    window.removeEventListener('pointermove', handlePointerMove);
+                    window.removeEventListener('pointerup', handlePointerUp);
+                }
+            }, [isDragging]);
+
+            useEffect(() => {
+                setOffset({ x: 0, y: 0 });
+                setThumbHidden(false);
+            }, [cards]);
+
+            if (!cards || cards.length < 2) return null;
+
+            return (
+                <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/95 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="text-yellow-500 font-bold mb-8 text-xl tracking-widest flex items-center gap-2">
+                        <IconEye /> 沉浸搓牌模式
+                    </div>
+                    <div className="relative w-48 h-72">
+                        <div className="absolute inset-0">
+                            <PlayingCard name={cards[1].name} suit={cards[1].suit} size="lg" showThumb={!thumbHidden} onThumbClick={() => setThumbHidden(true)} />
+                        </div>
+                        <div 
+                            className="absolute inset-0 cursor-move shadow-[0_20px_50px_rgba(0,0,0,0.5)] transition-transform duration-75 ease-out"
+                            style={{ transform: `translate(${offset.x}px, ${offset.y}px) rotate(${offset.x * 0.05}deg)` }}
+                            onPointerDown={handlePointerDown}
+                        >
+                            <PlayingCard name={cards[0].name} suit={cards[0].suit} size="lg" />
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
+                                {!isDragging && offset.x === 0 && <span className="text-black font-bold text-lg">按住拖动</span>}
+                            </div>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="mt-8 px-8 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-full text-white transition-all">
+                        完成看牌
+                    </button>
+                </div>
+            );
+        };
+
+        // --- 玩家座位组件 (含历史记录) ---
+        const PlayerSeat = ({ player, position }) => {
+            const [showHistory, setShowHistory] = useState(false);
+            const isFolded = player.status === 'FOLD';
+            const isTurn = player.isTurn;
+
+            const positionStyles = {
+                top: 'top-0 left-1/2 -translate-x-1/2 -translate-y-1/3',
+                left: 'top-1/2 left-0 -translate-x-1/4 -translate-y-1/2',
+                right: 'top-1/2 right-0 translate-x-1/4 -translate-y-1/2',
+                bottom: 'bottom-0 left-1/2 -translate-x-1/2 translate-y-1/3',
+            };
+
+            if (position === 'bottom') return null; 
+
+            return (
+                <div className={`absolute ${positionStyles[position]} flex flex-col items-center transition-all duration-300 z-10`}>
+                    
+                    {/* 最近行动气泡 (常驻显示) */}
+                    {player.lastAction && (
+                        <div className="mb-2 bg-white/90 text-black text-xs font-bold px-2 py-1 rounded shadow-lg animate-in fade-in slide-in-from-bottom-2">
+                            {player.lastAction}
+                        </div>
+                    )}
+
+                    {/* 头像区域 */}
+                    <div className={`relative w-16 h-16 rounded-full border-4 flex items-center justify-center bg-gray-800 shadow-lg 
+                        ${isTurn ? 'border-yellow-400 ring-4 ring-yellow-400/30' : 'border-gray-600'}
+                        ${isFolded ? 'opacity-60 grayscale' : ''}`}>
+                        <IconUser size={32} className="text-gray-400" />
+                        {isFolded && (
+                            <div className="absolute inset-0 bg-black/60 rounded-full flex items-center justify-center">
+                                <span className="text-xs font-bold text-red-400">FOLD</span>
+                            </div>
+                        )}
+                        <div className="absolute -bottom-2 bg-gray-900 border border-yellow-600 px-2 py-0.5 rounded-full text-xs text-yellow-500 font-mono flex items-center shadow-md">
+                            <span className="mr-1">ⓒ</span>{player.chips}
+                        </div>
+                    </div>
+
+                    {/* 名字和历史开关 */}
+                    <div className="mt-3 flex flex-col items-center">
+                        <div className="bg-black/60 px-3 py-1 rounded text-sm font-semibold backdrop-blur-sm text-gray-200 mb-1">
+                            {player.name}
+                        </div>
+                        
+                        <button 
+                            onClick={() => setShowHistory(!showHistory)}
+                            className="text-[10px] text-gray-400 hover:text-white flex items-center bg-black/40 px-2 rounded-full transition-colors"
+                        >
+                            History ({player.history ? player.history.length : 0})
+                            {showHistory ? <IconChevronUp size={10} className="ml-1"/> : <IconChevronDown size={10} className="ml-1"/>}
+                        </button>
+
+                        {/* 历史记录下拉面板 */}
+                        {showHistory && player.history && player.history.length > 0 && (
+                            <div className="absolute top-full mt-2 w-32 bg-gray-900/95 border border-gray-700 rounded-lg p-2 shadow-xl z-50 text-xs text-gray-300 max-h-32 overflow-y-auto history-scroll">
+                                {player.history.map((action, idx) => (
+                                    <div key={idx} className="border-b border-gray-800 py-1 last:border-0">
+                                        {action}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className={`flex space-x-1 mt-2 ${isFolded ? 'opacity-50' : ''}`}>
+                        <PlayingCard hidden={true} folded={isFolded} />
+                        <PlayingCard hidden={true} folded={isFolded} />
+                    </div>
+                </div>
+            );
+        };
+
+        // --- 主应用 ---
+        const App = () => {
+            const [gameState, setGameState] = useState({
+                round: 7,
+                pot: 4,
+                players: [
+                    { id: 1, name: 'Lv1_Rookie', chips: 194, status: 'PLAYING', cards: [], isTurn: false, lastAction: 'Check', history: ['Check'], hasBetThisRound: false },
+                    { id: 2, name: 'Lv2_Casual', chips: 282, status: 'PLAYING', cards: [], isTurn: false, lastAction: null, history: [], hasBetThisRound: false },
+                    { id: 3, name: 'Human', chips: 122, status: 'PLAYING', cards: [{name:'6', suit:'♦'}, {name:'4', suit:'♥'}], isTurn: true, lastAction: null, history: [], hasBetThisRound: false }, 
+                    { id: 4, name: 'Lv3_Grinder', chips: 198, status: 'FOLD', cards: [], isTurn: false, lastAction: 'Fold', history: ['Bet 4', 'Fold'], hasBetThisRound: true },
+                ],
+                logs: []
+            });
+
+            const [betAmount, setBetAmount] = useState(2);
+            const [isSqueezing, setIsSqueezing] = useState(false);
+            const logsEndRef = useRef(null);
+
+            useEffect(() => {
+                logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, [gameState.logs]);
+
+            // 核心逻辑：处理玩家行动
+            const handleAction = (type) => {
+                let actionText = "";
+                let amount = 0;
+
+                if (type === 'FOLD') {
+                    actionText = "弃牌 (Fold)";
+                } else if (type === 'CHECK') {
+                    actionText = "过牌 (Check)";
+                } else if (type === 'BET') {
+                    actionText = `下注 ${betAmount}`;
+                    amount = parseInt(betAmount);
+                } else if (type === 'DAI') {
+                    // "带" 逻辑：默认下注底池大小
+                    amount = gameState.pot;
+                    actionText = `带 (Dai) ${amount}`;
+                    // 更新输入框显示
+                    setBetAmount(amount);
+                }
+
+                setGameState(prev => {
+                    const newPlayers = prev.players.map(p => {
+                        if (p.name === 'Human') {
+                            const newHistory = [...p.history, actionText];
+                            // 如果下注或带，标记为已下注
+                            const hasBet = (type === 'BET' || type === 'DAI') ? true : p.hasBetThisRound;
+                            // 如果弃牌，改变状态
+                            const status = type === 'FOLD' ? 'FOLD' : p.status;
+                            
+                            return { 
+                                ...p, 
+                                lastAction: actionText, 
+                                history: newHistory,
+                                hasBetThisRound: hasBet,
+                                status: status,
+                                chips: p.chips - amount, // 扣除筹码
+                                isTurn: false // 行动结束
+                            };
+                        }
+                        return p;
+                    });
+
+                    // 简单模拟底池增加
+                    const newPot = prev.pot + amount;
+                    const newLogs = [...prev.logs, `[Human] ${actionText}`];
+
+                    return {
+                        ...prev,
+                        players: newPlayers,
+                        pot: newPot,
+                        logs: newLogs
+                    };
+                });
+            };
+
+            const humanPlayer = gameState.players.find(p => p.name === 'Human');
+            
+            // --- 动态按钮逻辑 ---
+            const showCheck = !humanPlayer.hasBetThisRound; // 第一次行动(未下注)时，根据需求"没有过牌"？ Wait, prompt said: "第一次轮到自己时，没有过牌按钮"
+            // 修正：Prompt 说 "第一次轮到自己时，没有过牌按钮" -> 意味着必须下注或弃牌? 
+            // 假设逻辑：
+            // 1. 如果 !hasBetThisRound (首轮) -> 隐藏 Check
+            // 2. 如果 hasBetThisRound (次轮) -> 隐藏 Fold, 显示 Check(可选), 显示 Dai(替代Bet)
+            
+            const isFirstAction = !humanPlayer.hasBetThisRound;
+            
+            const canFold = isFirstAction; // 只有第一次能弃牌？Prompt: "已经下注过一次...没有弃牌按钮" -> 意味着只能死磕
+            const canCheck = !isFirstAction; // Prompt: "第一次...没有过牌" -> 意味着只有第二次能过牌(或者只能Dai)
+            // 如果次轮也不能Check，那就只能 Dai。这里假设次轮可以 Check 或者 Dai。
+            
+            const showDai = !isFirstAction; // 次轮显示"带"
+
+            const opponents = [
+                { ...gameState.players[0], pos: 'top' },
+                { ...gameState.players[1], pos: 'right' },
+                { ...gameState.players[3], pos: 'left' }
+            ];
+
+            return (
+                <div className="w-full h-screen flex flex-col md:flex-row bg-gray-900 text-white overflow-hidden">
+                    
+                    {isSqueezing && (
+                        <SqueezeMode cards={humanPlayer.cards} onClose={() => setIsSqueezing(false)} />
+                    )}
+
+                    <div className="flex-1 relative flex flex-col p-4 md:p-8 items-center justify-center">
+                        <div className="md:hidden w-full flex justify-between mb-4 glass-panel p-2 rounded-lg">
+                            <div>Round: <span className="text-yellow-400 font-bold">{gameState.round}</span></div>
+                            <div className="text-yellow-400 font-bold">Pot: {gameState.pot}</div>
+                        </div>
+
+                        <div className="poker-table w-full max-w-4xl aspect-[16/9] relative mb-24 md:mb-0">
+                            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
+                                <div className="text-green-200/50 text-xs tracking-widest font-bold uppercase mb-2">Texas Fishing</div>
+                                <div className="bg-black/30 px-6 py-2 rounded-full border border-yellow-500/30 flex items-center space-x-2 backdrop-blur-sm">
+                                    <div className="w-4 h-4 rounded-full bg-yellow-500 shadow-[0_0_10px_#fbbf24]"></div>
+                                    <span className="text-yellow-400 font-mono text-2xl font-bold">{gameState.pot}</span>
+                                </div>
+                                <div className="mt-2 text-gray-400 text-sm">Round {gameState.round}</div>
+                            </div>
+
+                            {opponents.map(p => (
+                                <PlayerSeat key={p.id} player={p} position={p.pos} />
+                            ))}
+                        </div>
+
+                        {/* 底部操作区 */}
+                        <div className="fixed bottom-0 left-0 w-full md:w-auto md:left-8 md:right-[320px] lg:right-[360px] p-4 z-50">
+                            {/* 玩家本人信息 (含历史) */}
+                            <div className="flex flex-col items-center mb-4">
+                                <div className="flex items-center space-x-4">
+                                    <div onClick={() => setIsSqueezing(true)} className="flex space-x-2 relative group cursor-pointer" title="点击开始咪牌">
+                                        {humanPlayer.cards.map((card, idx) => (
+                                            <div key={idx} className="transform transition-transform group-hover:-translate-y-4 duration-300">
+                                                <PlayingCard name={card.name} suit={card.suit} />
+                                            </div>
+                                        ))}
+                                        <div className="absolute -right-12 top-1/2 -translate-y-1/2 animate-bounce">
+                                            <button onClick={(e) => { e.stopPropagation(); setIsSqueezing(true); }} className="bg-gray-800 p-2 rounded-full border border-yellow-500 text-yellow-500 hover:bg-yellow-900 transition-colors shadow-lg">
+                                                <IconEye size={16} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div className="mt-2 flex flex-col items-center">
+                                    <div className="flex items-center space-x-2 bg-gray-900/80 px-4 py-1 rounded-full border border-gray-700">
+                                        <span className="font-bold text-blue-400">YOU</span>
+                                        <div className="w-px h-4 bg-gray-600"></div>
+                                        <span className="text-yellow-500 font-mono">ⓒ {humanPlayer.chips}</span>
+                                    </div>
+                                    {/* 玩家自己的历史记录开关 */}
+                                    <PlayerSeat player={{...humanPlayer, status: 'PLAYING', isTurn: false}} position="bottom" /> 
+                                </div>
+                            </div>
+
+                            {/* 动态按钮栏 */}
+                            <div className="glass-panel p-3 rounded-xl flex items-center justify-between gap-3 max-w-xl mx-auto shadow-2xl">
+                                
+                                {/* 弃牌按钮：仅在首次行动时显示 */}
+                                {canFold && (
+                                    <button 
+                                        onClick={() => handleAction('FOLD')}
+                                        className="flex-1 bg-red-900/80 hover:bg-red-700 text-red-100 py-3 rounded-lg font-bold transition-all border border-red-800 flex flex-col items-center justify-center">
+                                        <IconXCircle size={20} className="mb-1 opacity-70"/>
+                                        <span className="text-xs sm:text-sm">弃牌 (Fold)</span>
+                                    </button>
+                                )}
+                                
+                                {/* 过牌按钮：仅在非首次行动时显示 (假设规则允许) */}
+                                {canCheck && (
+                                    <button 
+                                        onClick={() => handleAction('CHECK')}
+                                        className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-100 py-3 rounded-lg font-bold transition-all border border-gray-600 flex flex-col items-center justify-center">
+                                        <IconCheckCircle size={20} className="mb-1 opacity-70"/>
+                                        <span className="text-xs sm:text-sm">过牌 (Check)</span>
+                                    </button>
+                                )}
+                                
+                                {/* 下注/带 控制区 */}
+                                <div className="flex-[2] flex flex-col bg-gray-800/50 rounded-lg p-2 border border-gray-700">
+                                    <div className="flex justify-between text-xs text-gray-400 mb-1 px-1">
+                                        <span>Min: 1</span>
+                                        <span>Max: {humanPlayer.chips}</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        {/* 如果是"带"，输入框可能需要禁用或自动填充，这里为了灵活仍保留输入但按钮行为不同 */}
+                                        <input 
+                                            type="number" 
+                                            value={betAmount} 
+                                            onChange={(e) => setBetAmount(e.target.value)}
+                                            className="w-16 bg-black/50 border border-gray-600 rounded text-center font-mono text-yellow-400 focus:outline-none focus:border-yellow-500"
+                                        />
+                                        
+                                        {!showDai ? (
+                                            <button 
+                                                onClick={() => handleAction('BET')}
+                                                className="flex-1 bg-gradient-to-r from-yellow-600 to-yellow-700 hover:from-yellow-500 hover:to-yellow-600 text-white font-bold rounded shadow-lg border-t border-yellow-400 transition-all active:scale-95">
+                                                下注 (Bet)
+                                            </button>
+                                        ) : (
+                                            <button 
+                                                onClick={() => handleAction('DAI')}
+                                                className="flex-1 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 text-white font-bold rounded shadow-lg border-t border-purple-400 transition-all active:scale-95 flex items-center justify-center">
+                                                <span className="mr-1">带</span> (Dai)
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="hidden md:flex w-80 bg-gray-800 border-l border-gray-700 flex-col shadow-2xl z-20">
+                        <div className="p-4 border-b border-gray-700 bg-gray-900 flex justify-between items-center">
+                            <h2 className="font-bold flex items-center text-gray-200">
+                                <IconHistory size={18} className="mr-2 text-blue-400"/> Game Logs
+                            </h2>
+                            <span className="text-xs bg-gray-700 px-2 py-0.5 rounded text-gray-400">Live</span>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 custom-scroll space-y-2 font-mono text-sm">
+                            {gameState.logs.map((log, index) => (
+                                <div key={index} className={`border-l-2 pl-2 py-1 ${log.includes('Human') ? 'border-yellow-500 bg-yellow-900/10 text-yellow-100' : log.includes('System') ? 'border-blue-500 text-gray-400' : 'border-gray-600 text-gray-300'}`}>
+                                    {log}
+                                </div>
+                            ))}
+                            <div ref={logsEndRef} />
+                        </div>
+                        <div className="p-4 bg-gray-900 border-t border-gray-700 text-xs text-gray-500 flex justify-between">
+                            <span>MCTS Bot: <span className="text-green-500">Active</span></span>
+                            <span>v1.4.0</span>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
