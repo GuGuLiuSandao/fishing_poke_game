@@ -34,21 +34,61 @@
 - 账号体系：目前为临时 Session ID 或简单的 Name 输入。
 - 数据记录：单局内的筹码变化实时显示。
 
-4. 技术实现方向
+4. 技术架构设计 (Technical Architecture)
 
-- **前端**：React + Tailwind CSS (单文件 index.html 集成)。
-- **后端**：Python (FastAPI + WebSocket) + 多线程游戏循环。
-- **通信**：JSON 消息协议。
+采用**前后端分离 (Separation of Concerns)** 架构，确保前端交互的流畅性与后端服务的可扩展性。
+
+4.1 总体架构
+- **模式**：Client-Server (B/S)。
+- **通信协议**：
+  - **HTTP/REST**：用于非实时交互（用户登录、房间列表、战绩查询）。
+  - **WebSocket**：用于游戏核心循环（发牌、下注、状态同步），保证毫秒级低延迟。
+
+4.2 前端架构 (Frontend)
+- **技术栈**：
+  - **框架**：React 18+ (Functional Components + Hooks)。
+  - **语言**：TypeScript (强类型保障游戏状态一致性)。
+  - **构建工具**：Vite (提供极速的 HMR 开发体验)。
+  - **状态管理**：Zustand (轻量级，适合管理 Game State, Player Info)。
+  - **样式库**：Tailwind CSS (快速构建响应式布局)。
+  - **网络层**：Axios (HTTP) + Native WebSocket / Socket.io-client。
+- **目录规划 (`/web_client`)**：
+  - `/src/components`: UI 组件 (Card, Chip, Avatar)。
+  - `/src/game`: 游戏逻辑封装 (GameState, ActionTypes)。
+  - `/src/hooks`: 自定义 Hooks (useWebSocket, useGameLoop)。
+  - `/src/assets`: 静态资源。
+
+4.3 后端架构 (Backend)
+- **技术栈**：
+  - **语言**：Python 3.11+。
+  - **Web 框架**：FastAPI (高性能异步框架，原生支持 WebSocket)。
+  - **数据模型**：Pydantic (用于请求验证和序列化)。
+  - **并发模型**：Asyncio (处理多房间高并发)。
+- **核心模块 (`/server` 或根目录)**：
+  - `game_server.py`: WebSocket 连接管理、房间路由。
+  - `chip_game.py`: 核心游戏状态机 (State Machine)。
+  - `play_rule.py`: 牌型算法与胜负判定。
+  - `bot_ai.py`: 机器人逻辑接口。
+
+4.4 数据交互规范
+- **WebSocket 消息格式 (JSON)**：
+  - **Client -> Server**: `{ "action": "BET", "amount": 10, "uid": "user1" }`
+  - **Server -> Client**: `{ "type": "STATE_UPDATE", "pot": 100, "turn": "user2", "events": [...] }`
+- **类型同步**：尽量保持前端 TypeScript 接口与后端 Pydantic 模型的一致性。
 
 5. 版本路线
 
-- **当前版本**：
+- **v1.0 (MVP)**：
   - 完整 6 人局支持。
   - 核心玩法（发牌、比牌、底池逻辑）完备。
   - UI 美化（玻璃拟态、动画效果）。
   - 搓牌与历史记录增强体验。
+  - **架构升级**：完成 React+Vite 重构。
 
-- **未来迭代**：
-  - 账号持久化。
-  - 战绩回放。
-  - 更多动画特效（筹码飞入等）。
+- **v1.1 (Persistence)**：
+  - 账号持久化 (SQLite/PostgreSQL)。
+  - 战绩回放功能。
+
+- **v2.0 (Polishing)**：
+  - 更多动画特效（筹码飞入、发牌动画）。
+  - 聊天系统与表情包。
