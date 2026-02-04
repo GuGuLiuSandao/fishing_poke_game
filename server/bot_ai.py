@@ -131,21 +131,19 @@ class GeneBot:
             amount = self._calculate_bet(win_rate, context, is_counter=True)
             return "bet", amount
             
-        return "fold", 0
+        return "check", 0
 
     def _calculate_bet(self, win_rate, context, is_counter=False):
         """
         计算下注额 (离散化版)
-        基于：牌力 * 贪婪因子 映射到三个档位
+        基于：牌力 * 贪婪因子 映射到两个档位
         # 选项：
         # 1. 最小注 (1)
-        # 2. 基础底池注 (Base Pot)
-        # 3. 满池注 (Pot)
+        # 2. 满池注 (Pot)
+        # (取消中间档位 Base Pot，以符合“只能下1或Pot”的规则)
         """
         pot = context["pot"]
         chips = context["chips"]
-        # player_count = context.get("player_count", 2) # Deprecated for sizing
-        base_pot = context.get("base_pot", 3) # 默认3 (三人局)
         
         # 基础力度：胜率越高，力度越大
         strength = max(0.0, min(1.0, win_rate))
@@ -158,20 +156,14 @@ class GeneBot:
         if is_counter:
             score *= 1.1
 
-        # 定义档位 (硬编码的经验值，可以通过进化调整 greed 来适应)
-        # 假设 greed 范围 0.5 ~ 3.0
-        # strength 范围 0.0 ~ 1.0
-        # score 范围 0.0 ~ 3.0+
+        # 档位判断逻辑
+        # 调整阈值：score > 1.0 时下满池，否则下 1
         
         bet_choice = 1
         
-        # 档位判断逻辑
-        if score > 1.2:
+        if score > 1.0:
             # 高分 -> 满池 (All-in Pot)
             bet_choice = pot
-        elif score > 0.6:
-            # 中分 -> 基础底池 (相当于标准下注)
-            bet_choice = base_pot
         else:
             # 低分 -> 最小试探
             bet_choice = 1

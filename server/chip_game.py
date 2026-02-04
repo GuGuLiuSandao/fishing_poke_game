@@ -37,12 +37,59 @@ class ChipGame:
         self.round_index = 0  # 局数
         self.rng = rng or random.Random()  # 随机数生成器
         self.round_logs = [] # 当前局日志 (实时更新)
+        self.current_player_index = None # 当前行动玩家索引
+        self.force_next_starter_index = None # 强制下一局起始玩家 (用于特殊规则如捡天水)
+
+    def get_player_state(self, player_name):
+        """获取指定玩家的当前游戏状态快照 (用于重连)"""
+        players_data = []
+        is_my_turn = False
+        my_hand = None
+        
+        current_actor_name = None
+        if self.current_player_index is not None and 0 <= self.current_player_index < len(self.players):
+            current_actor_name = self.players[self.current_player_index].name
+
+        for p in self.players:
+            # Hide hand unless it's the player themselves or showdown (not handled here yet)
+            # Actually, for state restore during game, we assume no showdown yet.
+            hand_display = ["[Hidden]", "[Hidden]"]
+            if p.name == player_name:
+                if p.hand:
+                    hand_display = [str(c) for c in p.hand.cards]
+                    my_hand = p.hand
+            
+            p_data = {
+                "name": p.name,
+                "chips": p.chips,
+                "folded": p.folded,
+                "isTurn": (p.name == current_actor_name),
+                "has_bet": p.has_bet,
+                "hand": hand_display,
+                "lastAction": "", # Could store last action if needed
+                "avatar": "default" # Placeholder
+            }
+            players_data.append(p_data)
+            
+            if p.name == player_name and p_data["isTurn"]:
+                is_my_turn = True
+
+        return {
+            "round": self.round_index,
+            "pot": self.pot,
+            "players": players_data,
+            "is_my_turn": is_my_turn,
+            "current_player": current_actor_name,
+            "any_bet": getattr(self, "any_bet", False)
+        }
 
     def _notify_observer(self, event_type, data=None):
         if self.observer:
             self.observer(event_type, data)
 
     def _start_index(self):
+        if self.force_next_starter_index is not None:
+            return self.force_next_starter_index
         if self.last_winner_index is not None:
             return self.last_winner_index
         if self.last_tie_bettor_index is not None:
@@ -135,30 +182,49 @@ class ChipGame:
             action, amount = self._get_player_action(player, phase)
         
         if phase == "initial":
-            # 如果没人下注 (any_bet=False)，本游戏强制要求 下注 或 弃牌 (不允许 Check)
-            # 用户规则: "第一次轮到自己，只能下注或者弃牌"
+            # 阶段一：初次下注 (Initial Phase)
+            # 规则：弃牌 或 下注 (1~Pot)
+            # 严禁 Check
             allowed_actions = ["fold", "bet"]
-            # if not any_bet:
-            #     allowed_actions.append("check")
-                
+            
             if action not in allowed_actions:
-                # 如果尝试 check 但不允许 (面对下注或首轮强制)，则视为 fold
                 return "fold", 0
                 
             if action == "bet":
-                amount = min(amount, player.chips, self.pot) # 下注上限为底池 (Pot Limit)
+                # 下注金额限制: 1 ~ min(chips, pot)
+                max_bet = min(player.chips, self.pot)
+                amount = min(amount, max_bet)
                 if amount <= 0:
-                    # 如果下注 0，视为 check (如果允许) 或 fold
-                    return "check", 0 if not any_bet else "fold", 0
+                    return "fold", 0 # 下注无效视为弃牌
             return action, amount
             
-        if action not in ["check", "bet"]:
-            return "check", 0
-        if action == "bet":
-            if player.chips < self.pot:
+        else:
+            # 阶段二：后续下注 (Follow Phase)
+            # 规则：过牌 (Check) 或 带 (Dai)
+            # Dai 即下注当前底池金额 (Bet Pot)
+            # 严禁任意金额下注，严禁弃牌 (Check优于Fold)
+            
+            # 注：虽然 Check 优于 Fold，但若前端发来 Fold，也可兼容处理为 Fold 或 Check。
+            # 既然规则说 "只能选择过牌或带"，这里严格限制。
+            if action == "fold":
+                # Follow 阶段禁止弃牌，强制转为 Check
                 return "check", 0
-            return "bet", self.pot
-        return "check", 0
+
+            allowed_actions = ["check", "bet"]
+            if action not in allowed_actions:
+                return "check", 0
+                
+            if action == "bet":
+                # 强制为 Pot Amount (即 "Dai")
+                # 如果钱不够 Pot，则 All-in (虽然规则没细说，但通常是这样，或者不允许Dai)
+                # 规则说 "投入与当前底池等量的筹码...或对方下注额" -> 这里简化为 Pot
+                # 若筹码不足 Pot，则视为 Check? 或者 AllIn?
+                # 假设：筹码不足不能 Dai -> Check
+                if player.chips < self.pot:
+                    return "check", 0
+                return "bet", self.pot
+                
+            return "check", 0
 
     def _betting_round(self, start_index, logs=None):
         # 执行一轮下注，直到无人再下注
@@ -199,6 +265,15 @@ class ChipGame:
                 current_idx = (current_idx + 1) % count
                 steps_without_bet += 1
                 continue
+            
+            # Update current player index for state snapshot
+            self.current_player_index = current_idx
+
+            # Notify observer about turn change
+            self._notify_observer("turn_change", {
+                "current_player": player.name,
+                "is_bot": player.is_bot
+            })
                 
             phase = "initial" if not player.has_bet else "follow"
             action, amount = self._choose_action(player, phase, any_bet=any_bet)
@@ -316,22 +391,40 @@ class ChipGame:
         if len(active_players) == 1:
             winner_index, winner = active_players[0]
             # 修正规则：如果赢家下注过（主动打跑别人），或者牌力 >= 8 点（捡天水），则获胜
-            if winner.has_bet or point_value(winner.hand) >= 8:
-                payout = self.pot
-                self.pot = 0
+            if winner.has_bet:
+                # 主动下注获胜，只能赢取下注额的双倍
+                payout = min(self.pot, winner.last_bet * 2)
+                self.pot -= payout
                 winner.chips += payout
                 self.last_winner_index = winner_index
                 self.last_tie_bettor_index = None
                 result["winner"] = winner.name
                 result["payout"] = payout
-                reason = "打跑对手" if winner.has_bet else "捡天水"
-                self.round_logs.append(f"{winner.name} {reason}，收池 {payout}")
+                self.round_logs.append(f"{winner.name} 打跑对手，收池 {payout}")
+            elif point_value(winner.hand) >= 8:
+                # 捡天水，赢取全部底池
+                payout = self.pot
+                self.pot = 0
+                winner.chips += payout
+                self.last_winner_index = winner_index
+                self.last_tie_bettor_index = None
+                
+                # 特殊规则: 捡天水成功，下一局由该玩家开始 (覆盖默认赢家逻辑，虽然后果一样)
+                self.force_next_starter_index = winner_index
+                
+                result["winner"] = winner.name
+                result["payout"] = payout
+                self.round_logs.append(f"{winner.name} 捡天水，收池 {payout}")
             else:
                 winner.folded = True
                 self.last_winner_index = None
                 self.last_folder_index = winner_index
                 self.last_tie_bettor_index = None
-                self.round_logs.append(f"{winner.name} 牌力不足 8 点且未下注，弃牌，本局无胜者")
+                
+                # 特殊规则: 捡天水失败，下一局仍由该玩家开始
+                self.force_next_starter_index = winner_index
+                
+                self.round_logs.append(f"{winner.name} 牌力不足 8 点且未下注，捡天水失败。但获得下局先手权。")
         else:
             ranked = rank_hands([(p.name, p.hand) for _, p in active_players])
             best_hand = ranked[0][1]
@@ -353,6 +446,7 @@ class ChipGame:
                 self.round_logs.append(f"{winner_player.name} 获胜，收池 {payout}")
 
         result["pot"] = self.pot
+
         # Add player data for showdown
         result["players"] = [
             {

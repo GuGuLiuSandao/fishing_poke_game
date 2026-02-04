@@ -58,13 +58,14 @@ class MathBot:
         if is_natural:
             # 天水策略：
             # 如果没人下注，优先 Check (Trap)，引诱对手下注
-            # 如果有人下注 (any_bet=True)，必须接招 (Bet/Call)
+            # 但如果规则禁止 Initial Check，则必须下注 (Bet 1) 以保留牌局
             if context.get("any_bet", False):
-                target = max(1, pot // 2 + 1)
+                target = pot # 修正：只能下注 Pot 或 1
                 amount = min(target, chips)
                 return "bet", amount
             else:
-                return "check", 0
+                # 无法 Check Trap，只能 Bet 1 试探
+                return "bet", 1
             
         # 非天水策略：必须下注才能赢 (Check 收益为 0)
         # 赔率机制：Bet 1 赢 1 (净利)。收益比 1:1。
@@ -72,16 +73,15 @@ class MathBot:
         
         if p_win > 0.5:
             # 胜率极高，下注收池
-            # 为了清空底池，应该下注 Pot/2 (因为 Payout = 2*Bet)
-            target = max(1, pot // 2 + 1)
+            # 规则限制：只能下 1 或 Pot。为了清空底池，必须下 Pot。
+            target = pot
             amount = min(target, chips)
             return "bet", amount
             
         else:
             # 胜率不足 50%，下注是负收益
-            # 只能 Check (期待后续有人诈唬送钱? 不，check 只能输或平)
-            # 最好 Check (保留 Ante)
-            return "check", 0
+            # Initial Phase 禁止 Check，只能 Fold
+            return "fold", 0
 
     def decide_follow_action(self, context):
         """
@@ -103,14 +103,14 @@ class MathBot:
             # 天水：必须接招
             # 既然对手已经下注，底池变大了
             # 我们应该反打，并且力度要足以覆盖底池
-            target = max(1, pot // 2 + 1)
+            target = pot # 修正：只能下注 Pot 或 1
             amount = min(target, chips)
             return "bet", amount
             
         # 非天水：
         # 只有在胜率 > 50% 时才接招
         if p_win > 0.5:
-            target = max(1, pot // 2 + 1)
+            target = pot # 修正：只能下注 Pot 或 1
             amount = min(target, chips)
             return "bet", amount
         else:

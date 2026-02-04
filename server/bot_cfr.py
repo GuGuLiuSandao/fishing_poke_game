@@ -74,10 +74,11 @@ class CFRBot:
         action_code = self._sample_action(probs)
         
         if action_code == PASS:
-            return "check", 0
+            return "fold", 0
         else:
-            # 下注策略: 标准尺寸
-            target = max(1, pot // 2 + 1)
+            # 下注策略: 只能下 1 或 Pot
+            # 由于 CFR 通常在强牌时下注，我们选择 Pot (为了收全池)
+            target = pot
             amount = min(target, chips)
             return "bet", amount
 
@@ -103,7 +104,7 @@ class CFRBot:
         
         # 我们为“套池 (Pot Committed)”情况设定一个硬性底线。
         if rank <= 25: 
-            target = max(1, pot // 2 + 1)
+            target = pot
             amount = min(target, chips)
             return "bet", amount
         else:
