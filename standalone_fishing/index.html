@@ -1,0 +1,1059 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>单机版钓鱼 (Standalone Fishing)</title>
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        #game-container {
+            flex: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Table */
+        .table {
+            width: 600px;
+            height: 400px;
+            background-color: #35654d;
+            border-radius: 200px;
+            border: 15px solid #3e2723;
+            position: relative;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        }
+
+        /* Seats */
+        .seat {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        .seat.active {
+            transform: scale(1.1);
+            text-shadow: 0 0 10px yellow;
+        }
+        
+        .seat.folded {
+            opacity: 0.5;
+            filter: grayscale(100%);
+        }
+
+        .avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background-color: #555;
+            border: 3px solid #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 20px;
+            position: relative;
+        }
+        
+        .seat.active .avatar {
+            border-color: #ffd700;
+            box-shadow: 0 0 15px #ffd700;
+        }
+
+        .seat-info {
+            background: rgba(0,0,0,0.7);
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-top: 5px;
+            text-align: center;
+            font-size: 12px;
+        }
+
+        /* Positions */
+        #seat-0 { bottom: -60px; left: 50%; transform: translateX(-50%); } /* Human */
+        #seat-1 { left: -60px; top: 50%; transform: translateY(-50%); }
+        #seat-2 { top: -60px; left: 50%; transform: translateX(-50%); }
+        #seat-3 { right: -60px; top: 50%; transform: translateY(-50%); }
+
+        /* Cards */
+        .cards-container {
+            display: flex;
+            gap: 5px;
+            margin-top: 5px;
+        }
+
+        .card {
+            width: 40px;
+            height: 56px;
+            background: white;
+            color: black;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+        }
+
+        .card.red { color: #d32f2f; }
+        .card.black { color: #212121; }
+        .card.hidden { 
+            background: #3e2723; 
+            background-image: repeating-linear-gradient(45deg, #3e2723 0, #3e2723 5px, #4e342e 5px, #4e342e 10px);
+            color: transparent; 
+        }
+
+        /* Center Info */
+        .center-area {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .pot {
+            font-size: 24px;
+            color: #ffd700;
+            margin-bottom: 10px;
+        }
+        
+        .community-msg {
+            font-size: 16px;
+            color: white;
+            background: rgba(0,0,0,0.5);
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+
+        /* Controls */
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+            z-index: 100;
+        }
+
+        button {
+            padding: 10px 30px;
+            font-size: 18px;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: transform 0.1s;
+            font-weight: bold;
+        }
+
+        button:active { transform: scale(0.95); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-fold { background-color: #d32f2f; color: white; }
+        .btn-check { background-color: #1976d2; color: white; }
+        .btn-bet { background-color: #ffd700; color: black; }
+
+        /* Logs */
+        #logs {
+            height: 150px;
+            background: #111;
+            overflow-y: auto;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #ccc;
+            border-top: 1px solid #333;
+        }
+        
+        .log-entry { margin-bottom: 2px; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div class="table">
+            <div class="center-area">
+                <div class="pot">底池: <span id="pot-value">0</span></div>
+                <div id="game-msg" class="community-msg">等待开始...</div>
+            </div>
+
+            <!-- Seats will be injected here -->
+            <div id="seats-layer"></div>
+        </div>
+        
+        <div id="controls" style="display: none; flex-direction: column; align-items: center; gap: 10px;">
+            <div id="bet-slider-container" style="display: none; width: 100%; text-align: center; margin-bottom: 10px;">
+                <input type="range" id="bet-slider" min="1" max="100" value="1" style="width: 200px;">
+                <div style="margin-top: 5px; font-weight: bold; font-size: 16px;">下注: $<span id="bet-amount-display">1</span></div>
+            </div>
+            <div style="display: flex; gap: 20px;">
+                <button class="btn-fold" id="btn-fold" onclick="humanAction('fold')">弃牌</button>
+                <button class="btn-check" id="btn-check" onclick="humanAction('check')">过牌</button>
+                <button class="btn-bet" id="btn-bet" onclick="onBetClick()">下注</button>
+            </div>
+        </div>
+
+        <div id="next-round-controls" style="display: none; position: absolute; top: 60%; left: 50%; transform: translate(-50%, -50%); z-index: 200;">
+            <button onclick="game.startRound()" style="background-color: #4caf50; color: white; padding: 15px 40px; font-size: 24px; box-shadow: 0 0 20px rgba(0,0,0,0.5);">
+                下一局
+            </button>
+        </div>
+    </div>
+
+    <div id="logs"></div>
+
+    <script>
+// --- 枚举定义 ---
+const Color = {
+    RED: 1,
+    BLACK: 2
+};
+
+const Suit = {
+    HEARTS: 1,
+    DIAMONDS: 2,
+    SPADES: 3,
+    CLUBS: 4,
+    NONE: 0
+};
+
+Suit.toColor = (suit) => {
+    if (suit === Suit.HEARTS || suit === Suit.DIAMONDS) return Color.RED;
+    if (suit === Suit.SPADES || suit === Suit.CLUBS) return Color.BLACK;
+    return null;
+};
+
+Suit.toString = (suit) => {
+    const symbols = {
+        [Suit.HEARTS]: "♥",
+        [Suit.DIAMONDS]: "♦",
+        [Suit.SPADES]: "♠",
+        [Suit.CLUBS]: "♣",
+        [Suit.NONE]: ""
+    };
+    return symbols[suit] || "";
+};
+
+const HandRank = {
+    POINT_0: 0,
+    POINT_1: 1,
+    POINT_2: 2,
+    POINT_3: 3,
+    POINT_4: 4,
+    POINT_5: 5,
+    POINT_6: 6,
+    POINT_7: 7,
+    POINT_8: 8,
+    POINT_9: 9,
+    SPECIAL_2_8: 10,
+    SPECIAL_Q_8: 11,
+    SPECIAL_Q_9: 12,
+    PAIR: 13,
+    SUPREME: 14
+};
+
+// --- 卡牌与手牌类 ---
+class Card {
+    constructor(name, value, suit, weightRank = 0) {
+        this.name = name;
+        this.value = value;
+        this.suit = suit;
+        this.color = (suit !== Suit.NONE) ? Suit.toColor(suit) : Color.RED;
+        this.weightRank = weightRank;
+    }
+
+    toString() {
+        if (this.name === "大王") return "大王";
+        return Suit.toString(this.suit) + this.name;
+    }
+}
+
+class Hand {
+    constructor(cards) {
+        this.cards = cards;
+        const evalResult = this._evaluate();
+        this.rank = evalResult.rank;
+        this.subRank = evalResult.subRank;
+        this.maxWeight = evalResult.maxWeight;
+    }
+
+    _evaluate() {
+        const [c1, c2] = this.cards;
+        const names = new Set([c1.name, c2.name]);
+        
+        // 至尊: 3 + 大王
+        if (names.has("大王") && names.has("3")) {
+            return { rank: HandRank.SUPREME, subRank: 0, maxWeight: 0 };
+        }
+        
+        // 对子
+        if (c1.name === c2.name && c1.color === c2.color) {
+            let subRank = 1;
+            if (c1.name === "Q") subRank = 100;
+            else if (c1.name === "2") subRank = 80;
+            else if (c1.name === "8" && c1.color === Color.RED) subRank = 60;
+            else if (c1.name === "4" && c1.color === Color.RED) subRank = 40;
+            else if (c1.name === "10" && c1.color === Color.BLACK) subRank = 20;
+            return { rank: HandRank.PAIR, subRank: subRank, maxWeight: 0 };
+        }
+        
+        // 特殊牌型
+        if (names.has("Q") && names.has("9")) return { rank: HandRank.SPECIAL_Q_9, subRank: 0, maxWeight: 0 };
+        if (names.has("Q") && names.has("8")) return { rank: HandRank.SPECIAL_Q_8, subRank: 0, maxWeight: 0 };
+        if (names.has("2") && names.has("8")) return { rank: HandRank.SPECIAL_2_8, subRank: 0, maxWeight: 0 };
+        
+        // 点数牌
+        const totalPoints = (c1.value + c2.value) % 10;
+        const maxWeight = Math.max(c1.weightRank, c2.weightRank);
+        
+        // 将总点数 (0-9) 映射到 HandRank.POINT_X (0-9)
+        // 因为 HandRank.POINT_X 的值就是 0-9，我们可以直接使用 totalPoints
+        return { rank: totalPoints, subRank: 0, maxWeight: maxWeight };
+    }
+
+    // 如果 this > other 返回 > 0，如果 this < other 返回 < 0，相等返回 0
+    compareTo(other) {
+        if (this.rank !== other.rank) return this.rank - other.rank;
+        if (this.rank === HandRank.PAIR) return this.subRank - other.subRank;
+        return this.maxWeight - other.maxWeight;
+    }
+
+    toString() {
+        return this.cards.map(c => c.toString()).join(" ");
+    }
+}
+
+// --- 牌堆构建器 ---
+function buildDeck() {
+    const deck = [];
+    deck.push(new Card("大王", 6, Suit.NONE));
+    deck.push(new Card("3", 3, Suit.HEARTS));
+    
+    const redSuits = [Suit.HEARTS, Suit.DIAMONDS];
+    redSuits.forEach(s => deck.push(new Card("Q", 12, s, 5)));
+    redSuits.forEach(s => deck.push(new Card("J", 11, s)));
+    redSuits.forEach(s => deck.push(new Card("9", 9, s)));
+    redSuits.forEach(s => deck.push(new Card("5", 5, s)));
+    redSuits.forEach(s => deck.push(new Card("2", 2, s, 4)));
+    
+    const mixedNames = ["10", "8", "7", "6", "4"];
+    mixedNames.forEach(name => {
+        const val = parseInt(name);
+        const redWeight = (name === "8") ? 3 : (name === "4" ? 2 : 0);
+        const blackWeight = (name === "10") ? 1 : 0;
+        
+        deck.push(new Card(name, val, Suit.HEARTS, redWeight));
+        deck.push(new Card(name, val, Suit.DIAMONDS, redWeight));
+        deck.push(new Card(name, val, Suit.SPADES, blackWeight));
+        deck.push(new Card(name, val, Suit.CLUBS, blackWeight));
+    });
+    return deck;
+}
+
+// --- 牌力排名系统 ---
+// 预计算所有手牌以分配 0-63 的排名（0 为最强）
+let POWER_MAP = {};
+
+function initPowerMap() {
+    const deck = buildDeck();
+    const hands = [];
+    
+    // 生成所有唯一的两张牌组合
+    for (let i = 0; i < deck.length; i++) {
+        for (let j = i + 1; j < deck.length; j++) {
+            const h = new Hand([deck[i], deck[j]]);
+            hands.push(h);
+        }
+    }
+    
+    // 降序排序
+    hands.sort((a, b) => b.compareTo(a));
+    
+    // 分配排名
+    const uniqueKeys = [];
+    const keySet = new Set();
+    
+    hands.forEach(h => {
+        const key = `${h.rank}-${h.subRank}-${h.maxWeight}`;
+        if (!keySet.has(key)) {
+            keySet.add(key);
+            uniqueKeys.push({key, h});
+        }
+    });
+    
+    // 唯一键降序排序（从最好到最差）
+    uniqueKeys.sort((a, b) => b.h.compareTo(a.h));
+    
+    // 将键映射到索引（0 为最好）
+    uniqueKeys.forEach((item, index) => {
+        POWER_MAP[item.key] = index;
+    });
+    
+    console.log("Power Map initialized with " + uniqueKeys.length + " unique ranks.");
+}
+
+function getHandRank(hand) {
+    const key = `${hand.rank}-${hand.subRank}-${hand.maxWeight}`;
+    return POWER_MAP[key] !== undefined ? POWER_MAP[key] : 63;
+}
+
+// --- 机器人 AI ---
+class GeneBot {
+    constructor(rng) {
+        this.entryConf = 0.2717162786513663;
+        this.counterConf = 0.8678161596211192;
+        this.greed = 1.905066915604972;
+        this.bluff = 0.0;
+        this.rng = Math.random;
+    }
+
+    _getRawWinRate(hand, playerCount) {
+        const rank = getHandRank(hand);
+        const pSingle = (64 - rank) / 63.0;
+        const exponent = Math.max(1, playerCount - 1);
+        return Math.pow(pSingle, exponent);
+    }
+
+    _calculateBet(winRate, context, isCounter = false) {
+        const pot = context.pot;
+        const chips = context.chips;
+
+        const strength = Math.max(0.0, Math.min(1.0, winRate));
+        let score = strength * this.greed;
+
+        if (isCounter) {
+            score *= 1.1;
+        }
+
+        let betChoice = 1;
+        if (score > 1.0) {
+            betChoice = pot;
+        } else {
+            betChoice = 1;
+        }
+
+        const maxAllowed = Math.min(pot, chips);
+        let finalAmount = Math.min(betChoice, maxAllowed);
+        finalAmount = Math.max(1, finalAmount);
+        
+        return finalAmount;
+    }
+
+    decideInitialAction(context) {
+        const hand = context.hand;
+        if (!hand) return { action: "fold", amount: 0 };
+        
+        const winRate = this._getRawWinRate(hand, context.playerCount);
+        let shouldBet = false;
+        
+        // 1. 实力判断
+        if (winRate > this.entryConf) {
+            shouldBet = true;
+        } 
+        // 2. 诈唬判断 (偷鸡)
+        else if (winRate < 0.3 && this.rng() < this.bluff) {
+            shouldBet = true;
+        }
+        
+        if (shouldBet) {
+            const amount = this._calculateBet(winRate, context, false);
+            return { action: "bet", amount: amount };
+        }
+        
+        return { action: "fold", amount: 0 }; 
+    }
+
+    decideFollowAction(context) {
+        const hand = context.hand;
+        if (!hand) return { action: "fold", amount: 0 };
+
+        const winRate = this._getRawWinRate(hand, context.playerCount);
+        let shouldFight = false;
+
+        // 1. 反击判断
+        if (winRate > this.counterConf) {
+            shouldFight = true;
+        }
+        // 2. 诈唬反打 (Bluff Counter)
+        else if (winRate < 0.3 && this.rng() < this.bluff * 0.5) {
+            shouldFight = true;
+        }
+        
+        if (shouldFight) {
+             const amount = this._calculateBet(winRate, context, true);
+             return { action: "bet", amount: amount }; // 带
+        }
+        
+        // 否则过牌 (Check)
+        // 规则修正：如果是第一次行动 (turnCount === 0)，不能过牌 (Check)，只能弃牌 (Fold)
+        if (context.turnCount === 0) {
+            return { action: "fold", amount: 0 };
+        }
+        return { action: "check", amount: 0 };
+    }
+}
+
+// --- 玩家类 ---
+class Player {
+    constructor(name, chips, isBot = false) {
+        this.name = name;
+        this.chips = chips;
+        this.isBot = isBot;
+        this.hand = null;
+        this.folded = false;
+        this.hasBet = false;
+        this.lastBet = 0;
+        this.lastBetOrder = 0; // 记录下注顺序
+        this.turnCount = 0; // 跟踪当前轮次的行动
+        this.botAI = isBot ? new GeneBot() : null;
+    }
+    
+    resetForRound() {
+        this.hand = null;
+        this.folded = false;
+        this.hasBet = false;
+        this.lastBet = 0;
+        this.lastBetOrder = 0;
+        this.turnCount = 0;
+    }
+}
+
+// --- 游戏引擎 ---
+class GameEngine {
+    constructor() {
+        this.players = [];
+        this.pot = 0;
+        this.roundIndex = 0;
+        this.deck = [];
+        this.state = "LOBBY";
+        this.currentPlayerIndex = -1;
+        this.currentBet = 0;
+        this.aggressorIndex = -1;
+        this.startIndex = null;
+        this.lastWinnerIndex = undefined;
+        this.lastFoldedIndex = -1;
+        this.betCounter = 0; // 记录本局下注次序
+        this.logs = [];
+        this.onUpdate = null;
+    }
+    
+    init(playerName) {
+        this.players = [
+            new Player(playerName, 100, false),
+            new Player("Bot A", 100, true),
+            new Player("Bot B", 100, true),
+            new Player("Bot C", 100, true)
+        ];
+        
+        initPowerMap();
+        
+        this.log("游戏初始化完成");
+        this.startRound();
+    }
+    
+    log(msg) {
+        this.logs.push(msg);
+        console.log(msg);
+        if (this.onUpdate) this.onUpdate();
+    }
+    
+    startRound() {
+        this.roundIndex++;
+        this.currentBet = 0;
+        this.aggressorIndex = -1;
+        this.betCounter = 0;
+        this.startIndex = null;
+        this.state = "DEALING";
+        
+        const threshold = Math.ceil(this.players.length / 2);
+        if (this.pot <= threshold) {
+            this.log(`底池 (${this.pot}) <= 阈值 (${threshold})，追加前注`);
+            this.players.forEach(p => {
+                p.resetForRound();
+                if (p.chips > 0) {
+                    p.chips -= 1;
+                    this.pot += 1;
+                }
+            });
+        } else {
+            this.log(`底池 (${this.pot}) 充足，无需追加前注`);
+            this.players.forEach(p => p.resetForRound());
+        }
+        
+        this.deck = buildDeck();
+        for (let i = this.deck.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [this.deck[i], this.deck[j]] = [this.deck[j], this.deck[i]];
+        }
+        
+        this.players.forEach(p => {
+            if (p.chips >= 0) { 
+                if (p.chips > -100) {
+                    p.hand = new Hand([this.deck.pop(), this.deck.pop()]);
+                } else {
+                    p.folded = true;
+                }
+            }
+        });
+        
+        this.log(`--- 第 ${this.roundIndex} 局开始 ---`);
+        this.state = "BETTING_1";
+        
+        if (this.lastWinnerIndex !== undefined) {
+             this.currentPlayerIndex = this.lastWinnerIndex;
+        } else {
+             this.currentPlayerIndex = Math.floor(Math.random() * this.players.length);
+        }
+        
+        this.runTurn();
+    }
+    
+    async runTurn() {
+        if (this.checkRoundEnd()) return;
+        
+        const p = this.players[this.currentPlayerIndex];
+        
+        if (p.folded) {
+            this.nextPlayer();
+            return;
+        }
+        
+        this.log(`轮到 ${p.name} 行动`);
+        
+        if (p.isBot) {
+            await new Promise(r => setTimeout(r, 1000));
+            this.botAction(p);
+        } else {
+            if (this.onUpdate) this.onUpdate();
+        }
+    }
+    
+    botAction(player) {
+        let decision;
+        const context = {
+            hand: player.hand,
+            pot: this.pot,
+            chips: player.chips,
+            playerCount: this.activePlayerCount(),
+            amountToCall: this.currentBet,
+            turnCount: player.turnCount
+        };
+        
+        if (player.turnCount === 0 && this.aggressorIndex === -1) {
+            decision = player.botAI.decideInitialAction(context);
+        } else {
+            decision = player.botAI.decideFollowAction(context);
+        }
+        
+        this.handleAction(player, decision.action, decision.amount);
+    }
+    
+    handleHumanAction(action, amount) {
+        const p = this.players[this.currentPlayerIndex];
+        if (p.isBot) return;
+        this.handleAction(p, action, amount || 0); 
+    }
+    
+    handleAction(player, action, amount) {
+        if (action === "fold") {
+            this.log(`${player.name} 弃牌`);
+            player.folded = true;
+            this.lastFoldedIndex = this.players.indexOf(player);
+        } else if (action === "check") {
+            if (player.turnCount === 0) {
+                 this.log(`${player.name} 尝试过牌但被禁止 (首轮必须下注或弃牌) -> 自动弃牌`);
+                 player.folded = true;
+                 this.lastFoldedIndex = this.players.indexOf(player);
+            } else {
+                player.hasBet = true;
+                this.log(`${player.name} 过牌`);
+            }
+        } else if (action === "bet") {
+            let betAmt = 0;
+            
+            if (player.turnCount === 0) {
+                const maxBet = this.pot;
+                betAmt = amount || maxBet; 
+                betAmt = Math.max(1, betAmt);
+                betAmt = Math.min(betAmt, maxBet, player.chips);
+                
+                if (betAmt > this.currentBet || this.aggressorIndex === -1) {
+                    this.currentBet = betAmt;
+                    this.aggressorIndex = this.currentPlayerIndex;
+                }
+            } else {
+                let daiAmt = this.pot;
+                if (amount && amount > 0) {
+                     daiAmt = amount;
+                }
+                
+                betAmt = Math.min(daiAmt, player.chips);
+                
+                this.currentBet = betAmt;
+                this.aggressorIndex = this.currentPlayerIndex;
+            }
+            
+            player.chips -= betAmt;
+            this.pot += betAmt;
+            player.hasBet = true;
+            player.lastBet = betAmt;
+            
+            this.betCounter++;
+            player.lastBetOrder = this.betCounter;
+            
+            let actionName;
+            if (player.turnCount === 0) {
+                actionName = (betAmt === this.pot - betAmt) ? "吃" : "下注";
+            } else {
+                actionName = "带";
+            }
+            this.log(`${player.name} ${actionName} $${betAmt}`);
+        }
+        
+        player.turnCount++;
+        this.nextPlayer();
+    }
+    
+    nextPlayer() {
+        let nextIdx = (this.currentPlayerIndex + 1) % this.players.length;
+        
+        if (this.aggressorIndex !== -1) {
+            if (nextIdx === this.aggressorIndex) {
+                this.showdown();
+                return;
+            }
+        } else {
+            if (!this.startIndex) this.startIndex = this.currentPlayerIndex;
+            
+            if (nextIdx === this.startIndex) {
+                this.showdown();
+                return;
+            }
+        }
+        
+        this.currentPlayerIndex = nextIdx;
+        this.runTurn();
+    }
+    
+    checkRoundEnd() {
+        if (this.activePlayerCount() <= 1) {
+            this.endRound();
+            return true;
+        }
+        return false;
+    }
+    
+    activePlayerCount() {
+        return this.players.filter(p => !p.folded).length;
+    }
+    
+    showdown() {
+        this.log("--- 比牌 (Showdown) ---");
+        
+        let bestHand = null;
+        let winners = [];
+        
+        this.players.forEach(p => {
+            if (!p.folded) {
+                this.log(`${p.name} 亮牌: ${p.hand.toString()} (${getHandRank(p.hand)})`);
+                if (!bestHand) {
+                    bestHand = p.hand;
+                    winners = [p];
+                } else {
+                    const cmp = p.hand.compareTo(bestHand);
+                    if (cmp > 0) {
+                        bestHand = p.hand;
+                        winners = [p];
+                    } else if (cmp === 0) {
+                        winners.push(p);
+                    }
+                }
+            }
+        });
+        
+        this.distributePot(winners);
+    }
+    
+    endRound() {
+        const winner = this.players.find(p => !p.folded);
+        if (!winner) {
+            this.log("所有玩家均弃牌，底池保留");
+            if (this.lastFoldedIndex !== -1) {
+                this.lastWinnerIndex = this.lastFoldedIndex;
+            }
+            this.state = "END";
+            if (this.onUpdate) this.onUpdate();
+            return;
+        }
+
+        if (this.aggressorIndex !== -1) {
+            this.log(`${winner.name} 获胜 (对手对下注弃牌)`);
+            this.lastWinnerIndex = this.players.indexOf(winner);
+            this.distributePot([winner]);
+        } else {
+            if (winner.hand && winner.hand.rank >= 8) {
+                this.log(`${winner.name} 获胜 (捡天水, 牌力 >= 8)`);
+                const winAmount = this.pot;
+                winner.chips += winAmount;
+                this.pot = 0;
+                this.log(`${winner.name} 赢得 ${winAmount} (全部底池)`);
+                
+                this.lastWinnerIndex = this.players.indexOf(winner);
+                this.state = "END";
+                if (this.onUpdate) this.onUpdate();
+            } else {
+                this.log(`${winner.name} (捡天水) 但牌力 < 8 (${winner.hand ? winner.hand.toString() : '无手牌'})，无法收池`);
+                this.log(`底池保留: ${this.pot}`);
+                
+                this.lastWinnerIndex = this.players.indexOf(winner);
+                
+                this.state = "END";
+                if (this.onUpdate) this.onUpdate();
+            }
+        }
+    }
+    
+    distributePot(winners) {
+        if (winners.length === 1) {
+            // 单人获胜
+            const winner = winners[0];
+            this.lastWinnerIndex = this.players.indexOf(winner);
+            
+            const limit = winner.lastBet * 2;
+            const actualWin = Math.min(this.pot, limit);
+            
+            winner.chips += actualWin;
+            this.pot -= actualWin;
+            
+            this.log(`${winner.name} 赢得 ${actualWin} (上限: ${limit}, 本金: ${winner.lastBet})`);
+        } else {
+            // 平局
+            this.log("平局，无人收池");
+            
+            // 寻找最后一个下注的玩家 (lastBetOrder 最大)
+            // 规则: 从平局的玩家中选择最后一个下注的玩家作为下一单局的开始
+            let lastBettor = null;
+            let maxOrder = -1;
+            
+            winners.forEach(w => {
+                if (w.lastBetOrder > maxOrder) {
+                    maxOrder = w.lastBetOrder;
+                    lastBettor = w;
+                }
+            });
+            
+            if (lastBettor) {
+                this.lastWinnerIndex = this.players.indexOf(lastBettor);
+                this.log(`下一局由平局中最后下注者 ${lastBettor.name} 开始`);
+            } else {
+                // 如果都没下注 (理论上不应发生，因首轮必须Bet/Fold)，Fallback到第一个
+                this.lastWinnerIndex = this.players.indexOf(winners[0]);
+            }
+        }
+        
+        this.log(`底池剩余: ${this.pot}`);
+        this.state = "END";
+        if (this.onUpdate) this.onUpdate();
+    }
+}
+    
+        // --- UI 逻辑 ---
+        const game = new GameEngine();
+        const seatsLayer = document.getElementById('seats-layer');
+        const potValue = document.getElementById('pot-value');
+        const gameMsg = document.getElementById('game-msg');
+        const controls = document.getElementById('controls');
+        const logsDiv = document.getElementById('logs');
+        const btnFold = document.getElementById('btn-fold');
+        const btnCheck = document.getElementById('btn-check');
+        const btnBet = document.getElementById('btn-bet');
+        const nextRoundControls = document.getElementById('next-round-controls');
+        const betSliderContainer = document.getElementById('bet-slider-container');
+        const betSlider = document.getElementById('bet-slider');
+        const betAmountDisplay = document.getElementById('bet-amount-display');
+
+        // 设置 UI
+        function renderSeats() {
+            seatsLayer.innerHTML = '';
+            game.players.forEach((p, index) => {
+                const seatDiv = document.createElement('div');
+                seatDiv.id = `seat-${index}`;
+                seatDiv.className = `seat ${p.folded ? 'folded' : ''} ${game.currentPlayerIndex === index ? 'active' : ''}`;
+                
+                // 头像
+                const avatar = document.createElement('div');
+                avatar.className = 'avatar';
+                avatar.innerText = p.name[0];
+                avatar.style.backgroundColor = p.isBot ? '#555' : '#1976d2';
+                
+                // 信息
+                const info = document.createElement('div');
+                info.className = 'seat-info';
+                info.innerHTML = `<div>${p.name}</div><div>$${p.chips}</div>`;
+                if (p.hasBet) {
+                    info.innerHTML += `<div style="color:yellow">下注: ${p.lastBet}</div>`;
+                }
+
+                // 卡牌
+                const cardsDiv = document.createElement('div');
+                cardsDiv.className = 'cards-container';
+                
+                if (p.hand) {
+                    const showCards = !p.isBot || game.state === "END"; // 仅在结束时显示机器人卡牌
+                    // 总是显示我的卡牌
+                    const isMe = (index === 0);
+                    
+                    if (isMe || game.state === "END") {
+                        p.hand.cards.forEach(c => {
+                            const cardEl = document.createElement('div');
+                            cardEl.className = `card ${c.color === 1 ? 'red' : 'black'}`;
+                            cardEl.innerText = c.toString();
+                            cardsDiv.appendChild(cardEl);
+                        });
+                    } else {
+                        // 隐藏的卡牌
+                        cardsDiv.innerHTML = '<div class="card hidden"></div><div class="card hidden"></div>';
+                    }
+                }
+
+                seatDiv.appendChild(avatar);
+                seatDiv.appendChild(info);
+                seatDiv.appendChild(cardsDiv);
+                seatsLayer.appendChild(seatDiv);
+            });
+        }
+
+        function updateUI() {
+            renderSeats();
+            potValue.innerText = game.pot;
+            
+            // 更新游戏消息
+            if (game.state === 'LOBBY') {
+                 gameMsg.innerText = "等待开始...";
+            } else if (game.state === 'END') {
+                 gameMsg.innerText = "本局结束";
+            } else {
+                 gameMsg.innerText = `第 ${game.roundIndex} 局`;
+            }
+            
+            // 日志
+            // (由 appendLog 处理)
+            
+            // 控件可见性
+            const human = game.players[0];
+            const isMyTurn = (game.currentPlayerIndex === 0) && !human.folded && game.state.startsWith("BETTING");
+            
+            controls.style.display = isMyTurn ? 'flex' : 'none';
+            nextRoundControls.style.display = (game.state === "END") ? 'block' : 'none';
+            
+            // 更新按钮文本/状态
+            if (isMyTurn) {
+                if (human.turnCount === 0) {
+                    // 初始回合：下注或弃牌
+                    btnFold.style.display = 'block';
+                    btnCheck.style.display = 'none';
+                    
+                    // 滑块逻辑
+                    betSliderContainer.style.display = 'block';
+                    const maxBet = Math.min(game.pot, human.chips);
+                    betSlider.max = maxBet;
+                    betSlider.value = maxBet; // 默认为最大值
+                    betAmountDisplay.innerText = betSlider.value;
+                    
+                    // 根据滑块更新按钮文本
+                    updateBetButtonText();
+                } else {
+                    // 后续回合：带或过牌（不允许弃牌）
+                    btnFold.style.display = 'none';
+                    btnCheck.style.display = 'block';
+                    btnCheck.innerText = `过牌`;
+                    
+                    betSliderContainer.style.display = 'none';
+                    
+                    btnBet.innerText = `带 $${Math.min(game.pot, human.chips)}`;
+                }
+            }
+        }
+        
+        function updateBetButtonText() {
+            const val = parseInt(betSlider.value);
+            const human = game.players[0];
+            const maxBet = Math.min(game.pot, human.chips);
+            
+            if (val >= maxBet) {
+                btnBet.innerText = `吃 $${val}`;
+            } else {
+                btnBet.innerText = `下注 $${val}`;
+            }
+        }
+
+        betSlider.oninput = function() {
+            betAmountDisplay.innerText = this.value;
+            updateBetButtonText();
+        };
+
+        function onBetClick() {
+            const human = game.players[0];
+            if (human.turnCount === 0) {
+                const amount = parseInt(betSlider.value);
+                humanAction('bet', amount);
+            } else {
+                // 后续阶段：带（全底池）
+                humanAction('bet'); // 不需要金额，默认为逻辑值
+            }
+        }
+
+        function appendLog(msg) {
+            const div = document.createElement('div');
+            div.className = 'log-entry';
+            div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logsDiv.appendChild(div);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        // 挂钩游戏引擎
+        game.onUpdate = updateUI;
+        // 重写日志以同时输出到 UI
+        const originalLog = game.log.bind(game);
+        game.log = (msg) => {
+            originalLog(msg);
+            appendLog(msg);
+        };
+
+        // 动作
+        window.humanAction = (action, amount) => {
+            game.handleHumanAction(action, amount);
+        };
+
+        // 初始化
+        try {
+            game.init("玩家");
+            updateUI();
+        } catch (e) {
+            alert("Error: " + e.message + "\n" + e.stack);
+            console.error(e);
+            gameMsg.innerText = "Error: " + e.message;
+        }
+
+    </script>
+</body>
+</html>
