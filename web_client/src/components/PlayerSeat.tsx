@@ -27,14 +27,14 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({ player, position, winner, isSqu
 
     // Position styles
     const positionStyles: Record<string, string> = {
-        'bottom': 'bottom-8 left-1/2 -translate-x-1/2',
-        'left': 'top-1/2 left-8 -translate-y-1/2',
-        'right': 'top-1/2 right-8 -translate-y-1/2',
-        'top': 'top-8 left-1/2 -translate-x-1/2',
-        'top-left': 'top-16 left-24',
-        'top-right': 'top-16 right-24',
-        'bottom-left': 'bottom-24 left-32',
-        'bottom-right': 'bottom-24 right-32'
+        'bottom': '-bottom-10 left-1/2 -translate-x-1/2',
+        'left': 'top-1/2 -left-10 -translate-y-1/2',
+        'right': 'top-1/2 -right-10 -translate-y-1/2',
+        'top': '-top-10 left-1/2 -translate-x-1/2',
+        'top-left': '-top-4 -left-4',
+        'top-right': '-top-4 -right-4',
+        'bottom-left': '-bottom-4 -left-4',
+        'bottom-right': '-bottom-4 -right-4'
     };
 
     const styleClass = positionStyles[position] || positionStyles.top;
