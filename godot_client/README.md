@@ -1,33 +1,28 @@
 # godot_client
 
-这是给 `fishing_poke_game` 新开的 Godot 客户端骨架。
+这是 `fishing_poke_game` 的 Godot 客户端原型。
 
-## 现在有什么
+## 现在做到了什么
 
-- `project.godot`：Godot 4 项目入口
-- `scenes/Main.tscn`：启动主场景
-- `scripts/main.gd`：当前占位逻辑
+- 可打开的 Godot 4 项目
+- 一个可交互的牌桌界面
+- Start / Next Turn / Reset 三个按钮
+- 4 个座位的状态展示
 
-## 目录规划
+## 目录
 
-- `scenes/`：场景
-- `scripts/`：GDScript
-- 后面建议再补：
-  - `assets/`：图片/音效
-  - `ui/`：可复用 UI 组件
-  - `network/`：WebSocket 客户端
-  - `core/`：如果后面把规则层迁进来，可以放这里
+- `project.godot`：项目入口
+- `scenes/Main.tscn`：主场景
+- `scripts/main.gd`：桌面状态逻辑
 
-## 本地打开
+## 启动
 
 ```bash
 godot --path godot_client
 ```
 
-或者直接双击导入 `godot_client/project.godot`。
+## 下一步
 
-## 下一步建议
-
-1. 先把单机桌面原型做出来：牌桌、玩家位、回合状态。
-2. 然后接 WebSocket，把现在 Python 服务端先复用起来。
-3. 最后再考虑把核心规则和 Bot 抽成 Godot/Python 共用边界。
+1. 把座位和桌面数据拆成独立组件。
+2. 接上真实规则层。
+3. 再把 WebSocket 联机接进来。

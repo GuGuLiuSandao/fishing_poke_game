@@ -18,79 +18,339 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.0470588, 0.0980392, 0.12549, 1)
+color = Color(0.0392157, 0.0980392, 0.121569, 1)
 
-[node name="Margin" type="MarginContainer" parent="."]
+[node name="HUD" type="MarginContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 48.0
-offset_top = 48.0
-offset_right = -48.0
-offset_bottom = -48.0
+offset_left = 32.0
+offset_top = 24.0
+offset_right = -32.0
+offset_bottom = -24.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="VBox" type="VBoxContainer" parent="Margin"]
+[node name="HUDVBox" type="VBoxContainer" parent="HUD"]
 layout_mode = 2
-theme_override_constants/separation = 24
+theme_override_constants/separation = 14
 
-[node name="Header" type="VBoxContainer" parent="Margin/VBox"]
+[node name="Header" type="PanelContainer" parent="HUD/HUDVBox"]
 layout_mode = 2
-theme_override_constants/separation = 8
+custom_minimum_size = Vector2(0, 150)
 
-[node name="TitleLabel" type="Label" parent="Margin/VBox/Header"]
+[node name="HeaderMargin" type="MarginContainer" parent="HUD/HUDVBox/Header"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 42
+theme_override_constants/margin_left = 22
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 22
+theme_override_constants/margin_bottom = 18
+
+[node name="HeaderVBox" type="VBoxContainer" parent="HUD/HUDVBox/Header/HeaderMargin"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="TitleLabel" type="Label" parent="HUD/HUDVBox/Header/HeaderMargin/HeaderVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 34
 text = "Fishing Poke Game"
 
-[node name="SubtitleLabel" type="Label" parent="Margin/VBox/Header"]
+[node name="StatusLabel" type="Label" parent="HUD/HUDVBox/Header/HeaderMargin/HeaderVBox"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 20
-text = "Godot migration scaffold"
-
-[node name="StatusLabel" type="Label" parent="Margin/VBox/Header"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.529412, 0.843137, 0.756863, 1)
+theme_override_colors/font_color = Color(0.588235, 0.898039, 0.843137, 1)
 theme_override_font_sizes/font_size = 18
 text = "初始化中..."
 
-[node name="Body" type="PanelContainer" parent="Margin/VBox"]
+[node name="MetaRow" type="HBoxContainer" parent="HUD/HUDVBox/Header/HeaderMargin/HeaderVBox"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="RoundLabel" type="Label" parent="HUD/HUDVBox/Header/HeaderMargin/HeaderVBox/MetaRow"]
+layout_mode = 2
+text = "回合：0"
+
+[node name="PhaseLabel" type="Label" parent="HUD/HUDVBox/Header/HeaderMargin/HeaderVBox/MetaRow"]
+layout_mode = 2
+text = "阶段：大厅"
+
+[node name="ButtonRow" type="HBoxContainer" parent="HUD/HUDVBox/Header/HeaderMargin/HeaderVBox/MetaRow"]
+layout_mode = 2
+theme_override_constants/separation = 8
+size_flags_horizontal = 3
+
+[node name="StartButton" type="Button" parent="HUD/HUDVBox/Header/HeaderMargin/HeaderVBox/MetaRow/ButtonRow"]
+layout_mode = 2
+text = "Start"
+
+[node name="NextButton" type="Button" parent="HUD/HUDVBox/Header/HeaderMargin/HeaderVBox/MetaRow/ButtonRow"]
+layout_mode = 2
+text = "Next Turn"
+
+[node name="ResetButton" type="Button" parent="HUD/HUDVBox/Header/HeaderMargin/HeaderVBox/MetaRow/ButtonRow"]
+layout_mode = 2
+text = "Reset"
+
+[node name="MainRow" type="HBoxContainer" parent="HUD/HUDVBox"]
+layout_mode = 2
+theme_override_constants/separation = 14
+size_flags_vertical = 3
+
+[node name="Board" type="Control" parent="HUD/HUDVBox/MainRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Table" type="PanelContainer" parent="HUD/HUDVBox/MainRow/Board"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+custom_minimum_size = Vector2(0, 0)
+
+[node name="Inner" type="MarginContainer" parent="HUD/HUDVBox/MainRow/Board/Table"]
+layout_mode = 2
+theme_override_constants/margin_left = 26
+theme_override_constants/margin_top = 26
+theme_override_constants/margin_right = 26
+theme_override_constants/margin_bottom = 26
+
+[node name="CenterBlock" type="VBoxContainer" parent="HUD/HUDVBox/MainRow/Board/Table/Inner"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="TableTitle" type="Label" parent="HUD/HUDVBox/MainRow/Board/Table/Inner/CenterBlock"]
+layout_mode = 2
+text = "桌面待命"
+theme_override_font_sizes/font_size = 24
+
+[node name="TableText" type="RichTextLabel" parent="HUD/HUDVBox/MainRow/Board/Table/Inner/CenterBlock"]
+layout_mode = 2
+size_flags_vertical = 3
+bbcode_enabled = true
+fit_content = true
+scroll_active = false
+text = ""
+
+[node name="Seats" type="Control" parent="HUD/HUDVBox/MainRow/Board"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="SeatTop" type="PanelContainer" parent="HUD/HUDVBox/MainRow/Board/Seats"]
+layout_mode = 1
+anchors_preset = 10
+anchor_left = 0.35
+anchor_top = 0.02
+anchor_right = 0.65
+anchor_bottom = 0.18
+grow_horizontal = 2
+grow_vertical = 2
+custom_minimum_size = Vector2(0, 120)
+
+[node name="SeatMargin" type="MarginContainer" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatTop"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 12
+
+[node name="SeatVBox" type="VBoxContainer" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatTop/SeatMargin"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="NameLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatTop/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Name"
+
+[node name="RoleLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatTop/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Role"
+
+[node name="ChipsLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatTop/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Chips"
+
+[node name="StateLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatTop/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "State"
+
+[node name="CardsLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatTop/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Cards"
+
+[node name="SeatLeft" type="PanelContainer" parent="HUD/HUDVBox/MainRow/Board/Seats"]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.03
+anchor_top = 0.36
+anchor_right = 0.24
+anchor_bottom = 0.62
+grow_horizontal = 2
+grow_vertical = 2
+custom_minimum_size = Vector2(230, 160)
+
+[node name="SeatMargin" type="MarginContainer" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatLeft"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 12
+
+[node name="SeatVBox" type="VBoxContainer" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatLeft/SeatMargin"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="NameLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatLeft/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Name"
+
+[node name="RoleLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatLeft/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Role"
+
+[node name="ChipsLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatLeft/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Chips"
+
+[node name="StateLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatLeft/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "State"
+
+[node name="CardsLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatLeft/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Cards"
+
+[node name="SeatRight" type="PanelContainer" parent="HUD/HUDVBox/MainRow/Board/Seats"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.76
+anchor_top = 0.36
+anchor_right = 0.97
+anchor_bottom = 0.62
+grow_horizontal = 2
+grow_vertical = 2
+custom_minimum_size = Vector2(230, 160)
+
+[node name="SeatMargin" type="MarginContainer" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatRight"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 12
+
+[node name="SeatVBox" type="VBoxContainer" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatRight/SeatMargin"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="NameLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatRight/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Name"
+
+[node name="RoleLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatRight/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Role"
+
+[node name="ChipsLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatRight/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Chips"
+
+[node name="StateLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatRight/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "State"
+
+[node name="CardsLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatRight/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Cards"
+
+[node name="SeatBottom" type="PanelContainer" parent="HUD/HUDVBox/MainRow/Board/Seats"]
+layout_mode = 1
+anchors_preset = 12
+anchor_left = 0.35
+anchor_top = 0.78
+anchor_right = 0.65
+anchor_bottom = 0.98
+grow_horizontal = 2
+grow_vertical = 2
+custom_minimum_size = Vector2(0, 120)
+
+[node name="SeatMargin" type="MarginContainer" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatBottom"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 12
+
+[node name="SeatVBox" type="VBoxContainer" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatBottom/SeatMargin"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="NameLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatBottom/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Name"
+
+[node name="RoleLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatBottom/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Role"
+
+[node name="ChipsLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatBottom/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Chips"
+
+[node name="StateLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatBottom/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "State"
+
+[node name="CardsLabel" type="Label" parent="HUD/HUDVBox/MainRow/Board/Seats/SeatBottom/SeatMargin/SeatVBox"]
+layout_mode = 2
+text = "Cards"
+
+[node name="Sidebar" type="PanelContainer" parent="HUD/HUDVBox/MainRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(320, 0)
+size_flags_vertical = 3
+
+[node name="SidebarMargin" type="MarginContainer" parent="HUD/HUDVBox/MainRow/Sidebar"]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 18
+
+[node name="SidebarVBox" type="VBoxContainer" parent="HUD/HUDVBox/MainRow/Sidebar/SidebarMargin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="SidebarTitle" type="Label" parent="HUD/HUDVBox/MainRow/Sidebar/SidebarMargin/SidebarVBox"]
+layout_mode = 2
+text = "开发备忘"
+theme_override_font_sizes/font_size = 22
+
+[node name="LogCard" type="PanelContainer" parent="HUD/HUDVBox/MainRow/Sidebar/SidebarMargin/SidebarVBox"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="BodyMargin" type="MarginContainer" parent="Margin/VBox/Body"]
+[node name="LogMargin" type="MarginContainer" parent="HUD/HUDVBox/MainRow/Sidebar/SidebarMargin/SidebarVBox/LogCard"]
 layout_mode = 2
-theme_override_constants/margin_left = 24
-theme_override_constants/margin_top = 24
-theme_override_constants/margin_right = 24
-theme_override_constants/margin_bottom = 24
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 14
 
-[node name="Content" type="VBoxContainer" parent="Margin/VBox/Body/BodyMargin"]
-layout_mode = 2
-theme_override_constants/separation = 16
-
-[node name="NextStepTitle" type="Label" parent="Margin/VBox/Body/BodyMargin/Content"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 24
-text = "当前状态"
-
-[node name="NextStepLabel" type="Label" parent="Margin/VBox/Body/BodyMargin/Content"]
-layout_mode = 2
-autowrap_mode = 3
-theme_override_font_sizes/font_size = 18
-text = "等待脚本填充..."
-
-[node name="NotesLabel" type="RichTextLabel" parent="Margin/VBox/Body/BodyMargin/Content"]
+[node name="LogText" type="RichTextLabel" parent="HUD/HUDVBox/MainRow/Sidebar/SidebarMargin/SidebarVBox/LogCard/LogMargin"]
 layout_mode = 2
 bbcode_enabled = true
 fit_content = true
 scroll_active = false
 text = ""
 
-[node name="Footer" type="Label" parent="Margin/VBox"]
+[node name="Footer" type="Label" parent="HUD/HUDVBox"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.721569, 0.756863, 0.784314, 1)
-theme_override_font_sizes/font_size = 16
-text = "目录已拆好：scenes / scripts，后面可以继续塞 table、cards、network。"
+theme_override_colors/font_color = Color(0.713726, 0.756863, 0.784314, 1)
+text = "先把桌面和状态机跑起来，后面再接真实规则和 WebSocket。"
