@@ -3,3 +3,10 @@ __pycache__/
 .env
 .DS_Store
 .trae/
+
+# Godot
+.godot/
+.import/
+.mono/
+*.translation
+*.import
