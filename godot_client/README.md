@@ -1,19 +1,26 @@
 # godot_client
 
-这是 `fishing_poke_game` 的 Godot 客户端原型。
+这是 `fishing_poke_game` 的完整本地单机客户端，不依赖 Python 服务端或 WebSocket。
 
 ## 现在做到了什么
 
 - 可打开的 Godot 4 项目
-- 一个可交互的牌桌界面
-- Start / Next Turn / Reset 三个按钮
-- 4 个座位的状态展示
+- 1 名真人玩家对战 1～5 个 Bot
+- 可选择 Bot 数量和难度
+- 完整实现根目录 `RULES.md` 中的 32 张牌、牌力、补底、下注、吃、带、过牌、弃牌、捡天水、平局和结算规则
+- 完整整场流程：连续多局、淘汰、胜负、下一局与重新开始
+- 动态 2～6 人牌桌、隐藏信息和对局日志
 
 ## 目录
 
 - `project.godot`：项目入口
 - `scenes/Main.tscn`：主场景
-- `scripts/main.gd`：桌面状态逻辑
+- `scripts/main.gd`：桌面 UI、动态座位和交互
+- `scripts/game/hand_rules.gd`：牌组、牌型与牌力比较
+- `scripts/game/game_rules.gd`：补底、信用与结算公式
+- `scripts/game/bot_policy.gd`：本地 Bot 决策
+- `scripts/game/local_game.gd`：整场单机状态机
+- `tests/`：规则、行动、整场模拟与 UI 冒烟测试
 
 ## 启动
 
@@ -21,8 +28,20 @@
 godot --path godot_client
 ```
 
-## 下一步
+## 验证
 
-1. 把座位和桌面数据拆成独立组件。
-2. 接上真实规则层。
-3. 再把 WebSocket 联机接进来。
+```bash
+godot --headless --path godot_client --script res://tests/local_game_smoke.gd
+godot --headless --path godot_client --script res://tests/playthrough_20_rounds.gd
+godot --headless --path godot_client --script res://tests/rules_test.gd
+godot --headless --path godot_client --script res://tests/player_actions_smoke.gd
+godot --headless --path godot_client --script res://tests/settlement_test.gd
+godot --headless --path godot_client --script res://tests/ui_smoke.gd
+godot --headless --path godot_client --quit-after 1
+```
+
+真实窗口鼠标回放需要显示窗口，不能使用 `--headless`，也不要与其他 Godot 测试并行运行：
+
+```bash
+godot --path godot_client --script res://tests/ui_mouse_playthrough_20_rounds.gd
+```

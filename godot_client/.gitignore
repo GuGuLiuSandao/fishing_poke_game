@@ -3,3 +3,4 @@
 .mono/
 *.import
 *.translation
+tests/table_preview*.png
