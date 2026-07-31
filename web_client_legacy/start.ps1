@@ -1,5 +1,5 @@
 Write-Host "=================================="
-Write-Host "      Trae 钓鱼游戏启动脚本"
+Write-Host "        钓鱼游戏启动脚本"
 Write-Host "=================================="
 
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")

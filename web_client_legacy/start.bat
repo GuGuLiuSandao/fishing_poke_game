@@ -1,9 +1,9 @@
 @echo off
 setlocal
-title Trae Fishing Game Launcher
+title Fishing Game Launcher
 
 echo ==================================
-echo       Trae 钓鱼游戏启动脚本
+echo         钓鱼游戏启动脚本
 echo ==================================
 
 :: 1. 启动后端
