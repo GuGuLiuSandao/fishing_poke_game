@@ -11,12 +11,12 @@ echo.
 echo [1/2] 正在启动后端服务器...
 :: 使用 start 命令新开一个窗口运行服务器，避免阻塞当前窗口
 :: /MIN 最小化窗口
-start "Diaoyu Game Server" /MIN cmd /c "cd server && python game_server.py"
+start "Diaoyu Game Server" /MIN cmd /c "cd /d ""%~dp0..\server"" && python game_server.py"
 
 :: 2. 启动前端
 echo.
 echo [2/2] 正在启动前端客户端...
-cd web_client
+cd /d "%~dp0..\web_client"
 
 :: 检查依赖
 if not exist node_modules (
