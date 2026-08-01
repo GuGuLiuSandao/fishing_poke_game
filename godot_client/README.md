@@ -18,9 +18,12 @@
 - `scripts/main.gd`：桌面 UI、动态座位和交互
 - `scripts/game/hand_rules.gd`：牌组、牌型与牌力比较
 - `scripts/game/game_rules.gd`：补底、信用与结算公式
-- `scripts/game/bot_policy.gd`：本地 Bot 决策
+- `scripts/game/legacy_gene_bot.gd`：简单难度的固定遗传策略
+- `scripts/game/random_bot.gd`：自动评测使用的随机基线
+- `scripts/game/bot_policy.gd`：标准和老练难度的过渡 Bot，后续由搜索 Bot 替换
 - `scripts/game/local_game.gd`：整场单机状态机
 - `tests/`：规则、行动、整场模拟与 UI 冒烟测试
+- `tools/optimize_gene_bot.gd`：可复现的离线遗传优化与独立评测工具
 
 ## 启动
 
@@ -32,6 +35,7 @@ godot --path godot_client
 
 ```bash
 godot --headless --path godot_client --script res://tests/local_game_smoke.gd
+godot --headless --path godot_client --script res://tests/legacy_gene_bot_test.gd
 godot --headless --path godot_client --script res://tests/playthrough_20_rounds.gd
 godot --headless --path godot_client --script res://tests/rules_test.gd
 godot --headless --path godot_client --script res://tests/player_actions_smoke.gd
