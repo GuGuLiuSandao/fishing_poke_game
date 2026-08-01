@@ -24,7 +24,7 @@ var _table_action_counts := {
 
 func _init() -> void:
 	var game = LocalGameScript.new()
-	game.start_match(BOT_COUNT, 2, TEST_SEED)
+	game.start_match(BOT_COUNT, 1, TEST_SEED)
 
 	var completed_rounds := 0
 	var safety := 0

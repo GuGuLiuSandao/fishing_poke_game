@@ -34,6 +34,8 @@ func _run() -> void:
 
 	if not await _click_control(main.get_node(START_BUTTON_PATH), "开始挑战"):
 		return
+	if not await _wait_for_search(main):
+		return
 	if not _require(str(main.game.get_state()["phase"]) != "setup", "点击开始挑战后仍停留在准备阶段"):
 		return
 
@@ -48,6 +50,8 @@ func _run() -> void:
 		if not _require(safety <= 1200, "鼠标回放超过安全上限"):
 			return
 
+		if not await _wait_for_search(main):
+			return
 		var state: Dictionary = main.game.get_state()
 		if not _validate_state(main, state):
 			return
@@ -188,6 +192,14 @@ func _settle_ui() -> void:
 	await process_frame
 	await process_frame
 
+func _wait_for_search(main) -> bool:
+	var started := Time.get_ticks_msec()
+	while main.game.needs_search_bot_action():
+		if not _require(Time.get_ticks_msec() - started < 5000, "等待 SearchBot 超过 5 秒"):
+			return false
+		await process_frame
+	return true
+
 func _validate_state(main, state: Dictionary) -> bool:
 	var total := int(state["pot"])
 	for seat in main.game.seats:
@@ -198,7 +210,10 @@ func _validate_state(main, state: Dictionary) -> bool:
 		return false
 
 	if str(state["phase"]) == "playing":
-		if not _require(int(state["active_seat_index"]) == 0, "界面没有停在真人行动回合"):
+		if not _require(
+			int(state["active_seat_index"]) == int(state["human_seat_index"]),
+			"SearchBot 完成后界面没有停在真人行动回合"
+		):
 			return false
 		for index in range(1, state["seats"].size()):
 			var seat: Dictionary = state["seats"][index]
