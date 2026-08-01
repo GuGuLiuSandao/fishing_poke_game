@@ -4,6 +4,7 @@ const LocalGameScript = preload("res://scripts/game/local_game.gd")
 const BotPolicyScript = preload("res://scripts/game/bot_policy.gd")
 const LegacyGeneBotScript = preload("res://scripts/game/legacy_gene_bot.gd")
 const RandomBotScript = preload("res://scripts/game/random_bot.gd")
+const BotContractScript = preload("res://scripts/game/bot_contract.gd")
 
 const POPULATION_SIZE := 22
 const GENERATIONS := 14
@@ -52,6 +53,11 @@ func _run() -> void:
 	var validation_scenarios := _build_scenarios(VALIDATION_SEED_BASE, VALIDATION_SEEDS_PER_PROFILE)
 	var final_test_scenarios := _build_scenarios(FINAL_TEST_SEED_BASE, FINAL_TEST_SEEDS_PER_PROFILE)
 	var historical: Dictionary = LegacyGeneBotScript.HISTORICAL_GENOME.duplicate(true)
+	if OS.get_cmdline_user_args().has("--smoke"):
+		var smoke_scenarios := _build_scenarios(TRAIN_SEED_BASE, 1)
+		print("GeneBot optimizer smoke: %s" % _metrics_text(_evaluate_genome(historical, smoke_scenarios)))
+		quit()
+		return
 
 	print("GeneBot optimization")
 	print("training scenarios=%d, validation scenarios=%d, final scenarios=%d" % [
@@ -230,13 +236,17 @@ func _opponent_action(context: Dictionary, kind: String, difficulty: int) -> Dic
 		"legacy":
 			return LegacyGeneBotScript.choose_action(context)
 		_:
+			var observation: Dictionary = context["observation"]
+			var legal_names := BotContractScript.action_names(context["legal_actions"])
+			var bet_spec := BotContractScript.find_action(context["legal_actions"], "bet")
+			var max_bet := int(bet_spec.get("max_amount", 0))
 			return BotPolicyScript.choose_action(
-				context["legal_actions"],
-				int(context["pot"]),
-				int(context["max_bet"]),
-				context["hand"],
+				legal_names,
+				int(observation["pot"]),
+				max_bet,
+				observation["own_hand_result"],
 				difficulty,
-				context["rng"]
+				BotContractScript.rng_for_context(context)
 			)
 
 func _random_genome() -> Dictionary:
