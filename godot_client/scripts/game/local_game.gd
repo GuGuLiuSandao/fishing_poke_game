@@ -3,8 +3,9 @@ extends RefCounted
 
 const HandRulesScript = preload("res://scripts/game/hand_rules.gd")
 const GameRulesScript = preload("res://scripts/game/game_rules.gd")
-const BotPolicyScript = preload("res://scripts/game/bot_policy.gd")
+const BotContractScript = preload("res://scripts/game/bot_contract.gd")
 const LegacyGeneBotScript = preload("res://scripts/game/legacy_gene_bot.gd")
+const SearchBotScript = preload("res://scripts/game/search_bot.gd")
 
 const STARTING_CHIPS := 100
 const HUMAN_SEAT_INDEX := 0
@@ -17,11 +18,13 @@ var active_seat_index := -1
 var pot := 0
 var seats: Array = []
 var action_log: Array[String] = []
+var structured_action_history: Array[Dictionary] = []
 var round_message := ""
 var match_message := ""
 var match_result := ""
 var bot_count := 3
 var bot_difficulty := 2
+var human_seat_index := HUMAN_SEAT_INDEX
 
 var _rng := RandomNumberGenerator.new()
 var _deck: Array = []
@@ -30,6 +33,8 @@ var _bet_order := 0
 var _next_starter_index := -1
 var _bot_action_provider: Callable
 var _bot_rngs: Array[RandomNumberGenerator] = []
+var _deferred_search_mode := false
+var _action_sequence := 0
 
 func _init() -> void:
 	_rng.randomize()
@@ -42,16 +47,19 @@ func reset_to_setup() -> void:
 	pot = 0
 	seats = []
 	action_log = ["选择 Bot 数量和难度，然后开始挑战。"]
+	structured_action_history = []
 	round_message = ""
 	match_message = ""
 	match_result = ""
 	_last_bettor_index = -1
 	_bet_order = 0
 	_next_starter_index = -1
+	_action_sequence = 0
 
 func start_match(new_bot_count: int = 3, difficulty: int = 2, seed_value: int = 0) -> void:
 	bot_count = clampi(new_bot_count, 1, 5)
 	bot_difficulty = clampi(difficulty, 1, 3)
+	human_seat_index = clampi(human_seat_index, 0, bot_count)
 	if seed_value == 0:
 		_rng.randomize()
 	else:
@@ -67,6 +75,8 @@ func start_match(new_bot_count: int = 3, difficulty: int = 2, seed_value: int = 
 	_bet_order = 0
 	_next_starter_index = -1
 	action_log = []
+	structured_action_history = []
+	_action_sequence = 0
 	_create_seats()
 	_seed_bot_rngs(seed_value)
 	_push_log("挑战开始：你将对战 %d 名 Bot。" % bot_count)
@@ -78,6 +88,27 @@ func restart_match() -> void:
 func set_bot_action_provider(provider: Callable) -> void:
 	_bot_action_provider = provider
 
+func set_human_seat_index(index: int) -> void:
+	human_seat_index = maxi(0, index)
+
+func set_deferred_search_mode(enabled: bool) -> void:
+	_deferred_search_mode = enabled
+
+func needs_search_bot_action() -> bool:
+	if not _deferred_search_mode or phase != "playing" or active_seat_index < 0:
+		return false
+	return bool(seats[active_seat_index]["is_bot"]) and bot_difficulty >= 2
+
+func apply_bot_decision(decision: Dictionary) -> bool:
+	if phase != "playing" or active_seat_index < 0:
+		return false
+	if not bool(seats[active_seat_index]["is_bot"]):
+		return false
+	if not _apply_action(active_seat_index, str(decision.get("action", "")), int(decision.get("amount", 0))):
+		return false
+	_drive_bots_until_human_or_end()
+	return true
+
 func start_next_round() -> bool:
 	if phase != "round_end":
 		return false
@@ -85,11 +116,13 @@ func start_next_round() -> bool:
 	return true
 
 func player_action(action: String, amount: int = 0) -> bool:
-	if phase != "playing" or active_seat_index != HUMAN_SEAT_INDEX:
+	if phase != "playing" or active_seat_index != human_seat_index:
 		return false
+	if action == "dai" and amount == 0:
+		amount = pot
 	if not get_available_actions().has(action):
 		return false
-	if not _apply_action(HUMAN_SEAT_INDEX, action, amount):
+	if not _apply_action(human_seat_index, action, amount):
 		return false
 	_drive_bots_until_human_or_end()
 	return true
@@ -108,15 +141,13 @@ func get_decision_context(index: int) -> Dictionary:
 	var seat: Dictionary = seats[index]
 	if bool(seat["folded"]):
 		return {}
-	var legal_actions := _legal_actions_for(index)
-	var max_bet := GameRulesScript.max_initial_bet(int(seat["chips"]), pot)
-	return _bot_context(index, legal_actions, max_bet)
+	return _bot_context(index, _legal_action_specs_for(index))
 
 func get_state() -> Dictionary:
 	var visible_seats: Array = []
 	for index in range(seats.size()):
 		var seat: Dictionary = seats[index]
-		var show_cards := index == HUMAN_SEAT_INDEX or bool(seat["revealed"])
+		var show_cards := index == human_seat_index or bool(seat["revealed"])
 		var cards_text := "—"
 		var hand_name := ""
 		if not seat["cards"].is_empty():
@@ -138,8 +169,8 @@ func get_state() -> Dictionary:
 
 	var max_bet := 0
 	var dai_amount := 0
-	if phase == "playing" and active_seat_index == HUMAN_SEAT_INDEX:
-		var human: Dictionary = seats[HUMAN_SEAT_INDEX]
+	if phase == "playing" and active_seat_index == human_seat_index:
+		var human: Dictionary = seats[human_seat_index]
 		max_bet = GameRulesScript.max_initial_bet(int(human["chips"]), pot)
 		if GameRulesScript.can_dai(int(human["chips"]), pot):
 			dai_amount = pot
@@ -151,6 +182,7 @@ func get_state() -> Dictionary:
 		"pot": pot,
 		"seats": visible_seats,
 		"action_log": action_log.duplicate(),
+		"structured_action_history": structured_action_history.duplicate(true),
 		"available_actions": get_available_actions(),
 		"max_bet": max_bet,
 		"dai_amount": dai_amount,
@@ -158,13 +190,19 @@ func get_state() -> Dictionary:
 		"match_message": match_message,
 		"match_result": match_result,
 		"bot_count": bot_count,
-		"bot_difficulty": bot_difficulty
+		"bot_difficulty": bot_difficulty,
+		"human_seat_index": human_seat_index
 	}
 
 func _create_seats() -> void:
-	seats = [_new_seat("你", false)]
-	for index in range(bot_count):
-		seats.append(_new_seat(BOT_NAMES[index], true))
+	seats = []
+	var bot_name_index := 0
+	for index in range(bot_count + 1):
+		if index == human_seat_index:
+			seats.append(_new_seat("你", false))
+		else:
+			seats.append(_new_seat(BOT_NAMES[bot_name_index], true))
+			bot_name_index += 1
 
 func _seed_bot_rngs(seed_value: int) -> void:
 	_bot_rngs = []
@@ -249,12 +287,14 @@ func _start_round() -> void:
 func _can_start_another_round() -> bool:
 	if seats.is_empty():
 		return false
-	if int(seats[HUMAN_SEAT_INDEX]["chips"]) <= 0:
+	if int(seats[human_seat_index]["chips"]) <= 0:
 		_finish_match("defeat", "你的筹码已经耗尽，本次挑战结束。")
 		return false
 
 	var bot_alive := 0
-	for index in range(1, seats.size()):
+	for index in range(seats.size()):
+		if index == human_seat_index:
+			continue
 		if int(seats[index]["chips"]) > 0:
 			bot_alive += 1
 	if bot_alive == 0:
@@ -270,32 +310,29 @@ func _eligible_indices() -> Array:
 	return result
 
 func _legal_actions_for(index: int) -> Array:
-	var seat: Dictionary = seats[index]
-	if not bool(seat["has_bet"]):
-		var max_bet := GameRulesScript.max_initial_bet(int(seat["chips"]), pot)
-		return ["fold", "bet"] if max_bet > 0 else ["fold"]
+	return BotContractScript.action_names(_legal_action_specs_for(index))
 
-	var actions: Array = ["check"]
-	if GameRulesScript.can_dai(int(seat["chips"]), pot):
-		actions.append("dai")
-	return actions
+func _legal_action_specs_for(index: int) -> Array[Dictionary]:
+	var seat: Dictionary = seats[index]
+	return BotContractScript.legal_actions(int(seat["chips"]), pot, bool(seat["has_bet"]))
 
 func _apply_action(index: int, action: String, amount: int = 0) -> bool:
-	var legal_actions := _legal_actions_for(index)
-	if not legal_actions.has(action):
+	var legal_actions := _legal_action_specs_for(index)
+	var decision := {"action": action, "amount": amount}
+	if not BotContractScript.is_legal_decision(legal_actions, decision):
 		return false
 
 	var seat: Dictionary = seats[index]
+	var pot_before := pot
+	var chips_before := int(seat["chips"])
+	var has_bet_before := bool(seat["has_bet"])
+	var active_count_before := _active_indices().size()
 	if action == "fold":
 		seat["folded"] = true
 		seat["status"] = "已弃牌"
 		seats[index] = seat
 		_push_log("%s 弃牌。" % seat["name"])
 	elif action == "bet":
-		var max_bet := GameRulesScript.max_initial_bet(int(seat["chips"]), pot)
-		if amount < 1 or amount > max_bet:
-			return false
-		var pot_before := pot
 		seat["chips"] = int(seat["chips"]) - amount
 		seat["has_bet"] = true
 		seat["last_bet"] = amount
@@ -325,6 +362,15 @@ func _apply_action(index: int, action: String, amount: int = 0) -> bool:
 		seats[index] = seat
 		_push_log("%s 带 %d，底池变为 %d。" % [seat["name"], dai_amount, pot])
 
+	_record_structured_action(
+		index,
+		action,
+		amount,
+		pot_before,
+		chips_before,
+		has_bet_before,
+		active_count_before
+	)
 	_advance_after_action(index)
 	return true
 
@@ -363,48 +409,102 @@ func _next_active_index(from_index: int) -> int:
 
 func _drive_bots_until_human_or_end() -> void:
 	var safety := 0
-	while phase == "playing" and active_seat_index != HUMAN_SEAT_INDEX:
+	while phase == "playing" and active_seat_index != human_seat_index:
 		safety += 1
 		if safety > 500:
 			push_error("Bot 行动超过安全上限，对局状态可能无法收敛")
 			return
 		var seat: Dictionary = seats[active_seat_index]
-		var legal_actions := _legal_actions_for(active_seat_index)
-		var max_bet := GameRulesScript.max_initial_bet(int(seat["chips"]), pot)
-		var context := _bot_context(active_seat_index, legal_actions, max_bet)
+		var legal_actions := _legal_action_specs_for(active_seat_index)
 		var decision: Dictionary
 		if _bot_action_provider.is_valid():
-			decision = _bot_action_provider.call(context)
+			decision = _bot_action_provider.call(_bot_context(active_seat_index, legal_actions))
 		elif bot_difficulty == 1:
-			decision = LegacyGeneBotScript.choose_action(context)
+			decision = LegacyGeneBotScript.choose_action(_bot_context(active_seat_index, legal_actions))
+		elif _deferred_search_mode:
+			return
 		else:
-			decision = BotPolicyScript.choose_action(
-				legal_actions,
-				pot,
-				max_bet,
-				seat["hand"],
-				bot_difficulty,
-				_bot_rngs[active_seat_index]
-			)
+			var samples := 10 if bot_difficulty == 2 else 24
+			var context := _bot_context(active_seat_index, legal_actions)
+			decision = SearchBotScript.choose_action(context, {"fixed_samples": samples})
 		if not _apply_action(active_seat_index, str(decision.get("action", "")), int(decision.get("amount", 0))):
 			push_error("Bot %s 返回非法动作：%s" % [seat["name"], decision])
-			var fallback_action := "fold" if legal_actions.has("fold") else "check"
+			var legal_names := BotContractScript.action_names(legal_actions)
+			var fallback_action := "fold" if legal_names.has("fold") else "check"
 			_apply_action(active_seat_index, fallback_action, 0)
 
-func _bot_context(index: int, legal_actions: Array, max_bet: int) -> Dictionary:
+func _bot_context(index: int, legal_actions: Array) -> Dictionary:
 	var seat: Dictionary = seats[index]
-	return {
-		"seat_index": index,
-		"round_index": round_index,
+	var public_seats: Array[Dictionary] = []
+	for seat_index in range(seats.size()):
+		public_seats.append(BotContractScript.public_seat(seats[seat_index], seat_index))
+	var observation := {
+		"contract_version": BotContractScript.VERSION,
+		"actor_seat": index,
+		"own_cards": seat["cards"].duplicate(true),
+		"own_hand_result": seat["hand"].duplicate(true),
 		"pot": pot,
-		"chips": int(seat["chips"]),
-		"cards": seat["cards"].duplicate(true),
-		"hand": seat["hand"].duplicate(true),
-		"has_bet": bool(seat["has_bet"]),
-		"player_count": _active_indices().size(),
+		"public_seats": public_seats,
+		"active_seat": active_seat_index,
+		"round_index": round_index,
+		"structured_action_history": _current_round_history(),
+		"last_bettor_seat": _last_bettor_index,
+		"bet_order": _bet_order
+	}
+	return {
+		"observation": observation,
 		"legal_actions": legal_actions.duplicate(),
-		"max_bet": max_bet,
-		"rng": _bot_rngs[index]
+		"decision_seed": int(_bot_rngs[index].randi())
+	}
+
+func _current_round_history() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for event in structured_action_history:
+		if int(event["round_index"]) == round_index:
+			result.append(event.duplicate(true))
+	return result
+
+func _record_structured_action(
+	index: int,
+	action: String,
+	amount: int,
+	pot_before: int,
+	chips_before: int,
+	has_bet_before: bool,
+	active_count_before: int
+) -> void:
+	_action_sequence += 1
+	structured_action_history.append({
+		"round_index": round_index,
+		"sequence": _action_sequence,
+		"type": "action",
+		"actor_seat": index,
+		"action": action,
+		"bet_kind": "eat" if action == "bet" and amount == pot_before else action,
+		"amount": amount,
+		"pot_before": pot_before,
+		"pot_after": pot,
+		"chips_before": chips_before,
+		"chips_after": int(seats[index]["chips"]),
+		"has_bet_before": has_bet_before,
+		"active_player_count_before": active_count_before
+	})
+
+func _internal_round_snapshot() -> Dictionary:
+	return {
+		"phase": phase,
+		"round_index": round_index,
+		"active_seat": active_seat_index,
+		"pot": pot,
+		"seats": seats.duplicate(true),
+		"structured_action_history": _current_round_history(),
+		"last_bettor_seat": _last_bettor_index,
+		"bet_order": _bet_order,
+		"action_sequence": _action_sequence,
+		"next_starter_seat": _next_starter_index,
+		"winners": [],
+		"payout": 0,
+		"round_result": ""
 	}
 
 func _finish_single_player(active: Array) -> void:

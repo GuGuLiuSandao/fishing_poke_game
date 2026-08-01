@@ -2,6 +2,7 @@ class_name LegacyGeneBot
 extends RefCounted
 
 const HandRulesScript = preload("res://scripts/game/hand_rules.gd")
+const BotContractScript = preload("res://scripts/game/bot_contract.gd")
 
 const HISTORICAL_GENOME := {
 	"entry_conf": 0.2717162786513663,
@@ -19,32 +20,40 @@ const DEFAULT_GENOME := {
 
 static var _rank_by_power: Dictionary = {}
 
+static func prepare() -> void:
+	_ensure_rank_lookup()
+
 static func choose_action(context: Dictionary, genome: Dictionary = DEFAULT_GENOME) -> Dictionary:
 	var legal_actions: Array = context["legal_actions"]
-	var rng: RandomNumberGenerator = context["rng"]
-	var win_rate := estimated_win_rate(context["hand"], int(context["player_count"]))
+	var action_names := BotContractScript.action_names(legal_actions)
+	var observation: Dictionary = context["observation"]
+	var rng := BotContractScript.rng_for_context(context)
+	var player_count := _active_player_count(observation["public_seats"])
+	var win_rate := estimated_win_rate(observation["own_hand_result"], player_count)
 
-	if legal_actions.has("bet"):
+	if action_names.has("bet"):
 		var should_bet := win_rate > _gene(genome, "entry_conf", 0.6, 0.0, 1.0)
 		if not should_bet and win_rate < 0.3:
 			should_bet = rng.randf() < _gene(genome, "bluff", 0.1, 0.0, 0.5)
 		if not should_bet:
 			return {"action": "fold", "amount": 0}
 
-		var max_bet := int(context["max_bet"])
+		var bet_spec := BotContractScript.find_action(legal_actions, "bet")
+		var max_bet := int(bet_spec["max_amount"])
 		var amount := 1
 		if win_rate * _gene(genome, "greed", 1.5, 0.5, 3.0) > 1.0:
 			amount = max_bet
 		return {"action": "bet", "amount": clampi(amount, 1, max_bet)}
 
-	if legal_actions.has("dai"):
+	if action_names.has("dai"):
 		var should_dai := win_rate > _gene(genome, "counter_conf", 0.7, 0.0, 1.0)
 		if not should_dai and win_rate < 0.3:
 			should_dai = rng.randf() < _gene(genome, "bluff", 0.1, 0.0, 0.5) * 0.5
 		if should_dai:
-			return {"action": "dai", "amount": int(context["pot"])}
+			var dai_spec := BotContractScript.find_action(legal_actions, "dai")
+			return {"action": "dai", "amount": int(dai_spec["exact_amount"])}
 
-	if legal_actions.has("check"):
+	if action_names.has("check"):
 		return {"action": "check", "amount": 0}
 	return {"action": "fold", "amount": 0}
 
@@ -81,6 +90,13 @@ static func _power_key(hand_result: Dictionary) -> String:
 		int(hand_result["sub_rank"]),
 		int(hand_result["weight"])
 	]
+
+static func _active_player_count(public_seats: Array) -> int:
+	var count := 0
+	for seat in public_seats:
+		if bool(seat["participating"]) and not bool(seat["folded"]):
+			count += 1
+	return maxi(1, count)
 
 static func _gene(
 	genome: Dictionary,
