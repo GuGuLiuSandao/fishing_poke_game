@@ -4,6 +4,7 @@ extends RefCounted
 const HandRulesScript = preload("res://scripts/game/hand_rules.gd")
 const GameRulesScript = preload("res://scripts/game/game_rules.gd")
 const BotPolicyScript = preload("res://scripts/game/bot_policy.gd")
+const LegacyGeneBotScript = preload("res://scripts/game/legacy_gene_bot.gd")
 
 const STARTING_CHIPS := 100
 const HUMAN_SEAT_INDEX := 0
@@ -27,6 +28,8 @@ var _deck: Array = []
 var _last_bettor_index := -1
 var _bet_order := 0
 var _next_starter_index := -1
+var _bot_action_provider: Callable
+var _bot_rngs: Array[RandomNumberGenerator] = []
 
 func _init() -> void:
 	_rng.randomize()
@@ -65,11 +68,15 @@ func start_match(new_bot_count: int = 3, difficulty: int = 2, seed_value: int = 
 	_next_starter_index = -1
 	action_log = []
 	_create_seats()
+	_seed_bot_rngs(seed_value)
 	_push_log("挑战开始：你将对战 %d 名 Bot。" % bot_count)
 	_start_round()
 
 func restart_match() -> void:
 	start_match(bot_count, bot_difficulty)
+
+func set_bot_action_provider(provider: Callable) -> void:
+	_bot_action_provider = provider
 
 func start_next_round() -> bool:
 	if phase != "round_end":
@@ -94,6 +101,16 @@ func get_available_actions() -> Array:
 	if bool(seat["is_bot"]) or bool(seat["folded"]):
 		return []
 	return _legal_actions_for(active_seat_index)
+
+func get_decision_context(index: int) -> Dictionary:
+	if phase != "playing" or active_seat_index != index:
+		return {}
+	var seat: Dictionary = seats[index]
+	if bool(seat["folded"]):
+		return {}
+	var legal_actions := _legal_actions_for(index)
+	var max_bet := GameRulesScript.max_initial_bet(int(seat["chips"]), pot)
+	return _bot_context(index, legal_actions, max_bet)
 
 func get_state() -> Dictionary:
 	var visible_seats: Array = []
@@ -148,6 +165,16 @@ func _create_seats() -> void:
 	seats = [_new_seat("你", false)]
 	for index in range(bot_count):
 		seats.append(_new_seat(BOT_NAMES[index], true))
+
+func _seed_bot_rngs(seed_value: int) -> void:
+	_bot_rngs = []
+	for index in range(seats.size()):
+		var bot_rng := RandomNumberGenerator.new()
+		if seed_value == 0:
+			bot_rng.randomize()
+		else:
+			bot_rng.seed = seed_value * 1009 + (index + 1) * 9176
+		_bot_rngs.append(bot_rng)
 
 func _new_seat(player_name: String, is_bot: bool) -> Dictionary:
 	return {
@@ -344,15 +371,41 @@ func _drive_bots_until_human_or_end() -> void:
 		var seat: Dictionary = seats[active_seat_index]
 		var legal_actions := _legal_actions_for(active_seat_index)
 		var max_bet := GameRulesScript.max_initial_bet(int(seat["chips"]), pot)
-		var decision := BotPolicyScript.choose_action(
-			legal_actions,
-			pot,
-			max_bet,
-			seat["hand"],
-			bot_difficulty,
-			_rng
-		)
-		_apply_action(active_seat_index, str(decision["action"]), int(decision["amount"]))
+		var context := _bot_context(active_seat_index, legal_actions, max_bet)
+		var decision: Dictionary
+		if _bot_action_provider.is_valid():
+			decision = _bot_action_provider.call(context)
+		elif bot_difficulty == 1:
+			decision = LegacyGeneBotScript.choose_action(context)
+		else:
+			decision = BotPolicyScript.choose_action(
+				legal_actions,
+				pot,
+				max_bet,
+				seat["hand"],
+				bot_difficulty,
+				_bot_rngs[active_seat_index]
+			)
+		if not _apply_action(active_seat_index, str(decision.get("action", "")), int(decision.get("amount", 0))):
+			push_error("Bot %s 返回非法动作：%s" % [seat["name"], decision])
+			var fallback_action := "fold" if legal_actions.has("fold") else "check"
+			_apply_action(active_seat_index, fallback_action, 0)
+
+func _bot_context(index: int, legal_actions: Array, max_bet: int) -> Dictionary:
+	var seat: Dictionary = seats[index]
+	return {
+		"seat_index": index,
+		"round_index": round_index,
+		"pot": pot,
+		"chips": int(seat["chips"]),
+		"cards": seat["cards"].duplicate(true),
+		"hand": seat["hand"].duplicate(true),
+		"has_bet": bool(seat["has_bet"]),
+		"player_count": _active_indices().size(),
+		"legal_actions": legal_actions.duplicate(),
+		"max_bet": max_bet,
+		"rng": _bot_rngs[index]
+	}
 
 func _finish_single_player(active: Array) -> void:
 	active_seat_index = -1
