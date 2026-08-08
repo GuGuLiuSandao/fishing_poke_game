@@ -41,37 +41,9 @@ static func is_legal_decision(specs: Array, decision: Dictionary) -> bool:
 		return amount == exact_amount
 	return amount >= int(spec["min_amount"]) and amount <= int(spec["max_amount"])
 
-static func candidate_decisions(specs: Array, pot: int) -> Array[Dictionary]:
-	var result: Array[Dictionary] = []
-	for spec in specs:
-		var action := str(spec["action"])
-		if action != "bet":
-			result.append({"action": action, "amount": int(spec["exact_amount"])})
-			continue
-
-		var maximum := int(spec["max_amount"])
-		var amounts: Array[int] = [
-			1,
-			maxi(1, roundi(float(pot) * 0.25)),
-			maxi(1, roundi(float(pot) * 0.5)),
-			maxi(1, roundi(float(pot) * 0.75)),
-			maximum
-		]
-		if pot <= maximum:
-			amounts.append(pot)
-		amounts.sort()
-		var previous := -1
-		for raw_amount in amounts:
-			var amount := clampi(raw_amount, int(spec["min_amount"]), maximum)
-			if amount == previous:
-				continue
-			result.append({"action": "bet", "amount": amount})
-			previous = amount
-	return result
-
-static func rng_for_context(context: Dictionary, salt: int = 0) -> RandomNumberGenerator:
+static func rng_for_context(context: Dictionary) -> RandomNumberGenerator:
 	var rng := RandomNumberGenerator.new()
-	rng.seed = int(context["decision_seed"]) + salt * 104729
+	rng.seed = int(context["decision_seed"])
 	return rng
 
 static func public_seat(seat: Dictionary, index: int) -> Dictionary:

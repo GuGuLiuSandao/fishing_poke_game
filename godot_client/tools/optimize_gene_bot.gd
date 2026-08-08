@@ -25,12 +25,12 @@ const GENE_LIMITS := {
 }
 
 const OPPONENT_PROFILES := [
-	{"name": "random_1v1", "kind": "random", "bot_count": 1, "difficulty": 1},
-	{"name": "random_4p", "kind": "random", "bot_count": 3, "difficulty": 1},
-	{"name": "policy_easy_1v1", "kind": "policy", "bot_count": 1, "difficulty": 1},
-	{"name": "policy_standard_4p", "kind": "policy", "bot_count": 3, "difficulty": 2},
-	{"name": "policy_expert_6p", "kind": "policy", "bot_count": 5, "difficulty": 3},
-	{"name": "legacy_4p", "kind": "legacy", "bot_count": 3, "difficulty": 1}
+	{"name": "random_1v1", "kind": "random", "bot_count": 1, "policy_level": 1},
+	{"name": "random_4p", "kind": "random", "bot_count": 3, "policy_level": 1},
+	{"name": "policy_easy_1v1", "kind": "policy", "bot_count": 1, "policy_level": 1},
+	{"name": "policy_standard_4p", "kind": "policy", "bot_count": 3, "policy_level": 2},
+	{"name": "policy_expert_6p", "kind": "policy", "bot_count": 5, "policy_level": 3},
+	{"name": "legacy_4p", "kind": "legacy", "bot_count": 3, "policy_level": 1}
 ]
 
 const WARM_START_GENOMES := [
@@ -180,11 +180,11 @@ func _evaluate_genome(genome: Dictionary, scenarios: Array[Dictionary]) -> Dicti
 func _play_match(genome: Dictionary, scenario: Dictionary) -> Dictionary:
 	var game = LocalGameScript.new()
 	var opponent_kind := str(scenario["kind"])
-	var opponent_difficulty := int(scenario["difficulty"])
+	var opponent_policy_level := int(scenario["policy_level"])
 	game.set_bot_action_provider(func(context: Dictionary) -> Dictionary:
-		return _opponent_action(context, opponent_kind, opponent_difficulty)
+		return _opponent_action(context, opponent_kind, opponent_policy_level)
 	)
-	game.start_match(int(scenario["bot_count"]), opponent_difficulty, int(scenario["seed"]))
+	game.start_match(int(scenario["bot_count"]), int(scenario["seed"]))
 
 	var completed_rounds := 0
 	var safety := 0
@@ -229,7 +229,7 @@ func _normalized_stack_score(chips: int, player_count: int) -> float:
 		return clampf((current_share - starting_share) / (1.0 - starting_share), -1.0, 1.0)
 	return clampf((current_share - starting_share) / starting_share, -1.0, 1.0)
 
-func _opponent_action(context: Dictionary, kind: String, difficulty: int) -> Dictionary:
+func _opponent_action(context: Dictionary, kind: String, policy_level: int) -> Dictionary:
 	match kind:
 		"random":
 			return RandomBotScript.choose_action(context)
@@ -245,7 +245,7 @@ func _opponent_action(context: Dictionary, kind: String, difficulty: int) -> Dic
 				int(observation["pot"]),
 				max_bet,
 				observation["own_hand_result"],
-				difficulty,
+				policy_level,
 				BotContractScript.rng_for_context(context)
 			)
 

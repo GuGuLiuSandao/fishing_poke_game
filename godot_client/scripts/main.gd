@@ -1,14 +1,9 @@
 extends Control
 
 const LocalGameScript = preload("res://scripts/game/local_game.gd")
-const SearchBotScript = preload("res://scripts/game/search_bot.gd")
-const SearchControlScript = preload("res://scripts/game/search_control.gd")
-const SearchJobScript = preload("res://scripts/game/search_job.gd")
 
 var game: RefCounted
 var seat_views: Array = []
-var _search_generation := 0
-var _pending_searches: Array[Dictionary] = []
 
 @onready var header: PanelContainer = $RootMargin/RootVBox/Header
 @onready var table_wrap: PanelContainer = $RootMargin/RootVBox/Content/TableWrap
@@ -24,7 +19,6 @@ var _pending_searches: Array[Dictionary] = []
 
 @onready var setup_panel: VBoxContainer = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel
 @onready var bot_count_input: SpinBox = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel/BotRow/BotCount
-@onready var difficulty_input: OptionButton = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel/DifficultyRow/Difficulty
 @onready var start_button: Button = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel/StartButton
 
 @onready var action_help: Label = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/ActionHelp
@@ -42,12 +36,6 @@ var _pending_searches: Array[Dictionary] = []
 
 func _ready() -> void:
 	game = LocalGameScript.new()
-	game.set_deferred_search_mode(true)
-	SearchBotScript.prepare()
-	difficulty_input.add_item("轻松", 1)
-	difficulty_input.add_item("标准", 2)
-	difficulty_input.add_item("老练", 3)
-	difficulty_input.select(1)
 
 	start_button.pressed.connect(_on_start_pressed)
 	bet_button.pressed.connect(_on_bet_pressed)
@@ -62,16 +50,8 @@ func _ready() -> void:
 	_apply_styles()
 	_render()
 
-func _process(_delta: float) -> void:
-	_reap_search_tasks()
-	_start_search_if_needed()
-
-func _exit_tree() -> void:
-	_cancel_searches()
-
 func _on_start_pressed() -> void:
-	_cancel_searches()
-	game.start_match(int(bot_count_input.value), difficulty_input.selected + 1)
+	game.start_match(int(bot_count_input.value))
 	_render()
 
 func _on_bet_pressed() -> void:
@@ -100,62 +80,8 @@ func _on_next_round_pressed() -> void:
 		_render()
 
 func _on_restart_pressed() -> void:
-	_cancel_searches()
 	game.restart_match()
 	_render()
-
-func _start_search_if_needed() -> void:
-	if not game.needs_search_bot_action() or _has_current_search():
-		return
-	var context: Dictionary = game.get_decision_context(game.active_seat_index)
-	if context.is_empty():
-		return
-	var control = SearchControlScript.new()
-	var config := SearchBotScript.config_for_difficulty(game.bot_difficulty, control)
-	var job = SearchJobScript.new(context, config)
-	var task_id := WorkerThreadPool.add_task(
-		Callable(job, "run"),
-		false,
-		"SearchBot seat %d" % game.active_seat_index
-	)
-	_pending_searches.append({
-		"task_id": task_id,
-		"generation": _search_generation,
-		"seat_index": game.active_seat_index,
-		"control": control,
-		"job": job
-	})
-	_render()
-
-func _reap_search_tasks() -> void:
-	for index in range(_pending_searches.size() - 1, -1, -1):
-		var pending: Dictionary = _pending_searches[index]
-		var task_id := int(pending["task_id"])
-		if not WorkerThreadPool.is_task_completed(task_id):
-			continue
-		WorkerThreadPool.wait_for_task_completion(task_id)
-		var analysis: Dictionary = pending["job"].result()
-		_pending_searches.remove_at(index)
-		if int(pending["generation"]) != _search_generation:
-			continue
-		if pending["control"].is_cancelled():
-			continue
-		if not game.needs_search_bot_action() or int(pending["seat_index"]) != game.active_seat_index:
-			continue
-		if not game.apply_bot_decision(analysis["decision"]):
-			push_error("SearchBot 返回的动作在真实规则层被拒绝：%s" % analysis["decision"])
-		_render()
-
-func _cancel_searches() -> void:
-	_search_generation += 1
-	for pending in _pending_searches:
-		pending["control"].cancel()
-
-func _has_current_search() -> bool:
-	for pending in _pending_searches:
-		if int(pending["generation"]) == _search_generation:
-			return true
-	return false
 
 func _render() -> void:
 	var state: Dictionary = game.get_state()
@@ -310,8 +236,6 @@ func _action_help(state: Dictionary) -> String:
 		return "本局已经结算。确认牌面和底池后进入下一局。"
 	if phase == "game_over":
 		return str(state["match_message"])
-	if game.needs_search_bot_action():
-		return "Bot 正在分析候选行动。"
 	if actions.has("bet"):
 		return "这是你本局第一次行动：选择 1～%d 底，或弃牌。" % int(state["max_bet"])
 	if actions.has("check"):
@@ -328,8 +252,6 @@ func _center_message(state: Dictionary) -> String:
 		return str(state["match_message"])
 	if not str(state["round_message"]).is_empty():
 		return str(state["round_message"])
-	if game.needs_search_bot_action():
-		return "Bot 思考中"
 	var active_index := int(state["active_seat_index"])
 	if active_index >= 0:
 		return "轮到 %s" % state["seats"][active_index]["name"]

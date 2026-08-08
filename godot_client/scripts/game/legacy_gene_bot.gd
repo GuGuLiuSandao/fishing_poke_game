@@ -20,9 +20,6 @@ const DEFAULT_GENOME := {
 
 static var _rank_by_power: Dictionary = {}
 
-static func prepare() -> void:
-	_ensure_rank_lookup()
-
 static func choose_action(context: Dictionary, genome: Dictionary = DEFAULT_GENOME) -> Dictionary:
 	var legal_actions: Array = context["legal_actions"]
 	var action_names := BotContractScript.action_names(legal_actions)

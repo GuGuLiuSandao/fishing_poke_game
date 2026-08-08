@@ -3,21 +3,17 @@ extends SceneTree
 const BotContractScript = preload("res://scripts/game/bot_contract.gd")
 const LocalGameScript = preload("res://scripts/game/local_game.gd")
 const RoundSimulatorScript = preload("res://scripts/game/round_simulator.gd")
-const SearchBotScript = preload("res://scripts/game/search_bot.gd")
-const SearchControlScript = preload("res://scripts/game/search_control.gd")
 
 func _init() -> void:
-	_test_contract_and_candidates()
+	_test_contract()
 	_test_structured_history_and_privacy()
 	_test_clone_is_independent()
 	_test_simulated_next_round()
 	_test_simulator_matches_local_game()
-	_test_search_is_legal_and_reproducible()
-	_test_search_cancellation()
-	print("search_bot_test: ok")
+	print("bot_foundation_test: ok")
 	quit()
 
-func _test_contract_and_candidates() -> void:
+func _test_contract() -> void:
 	var initial := BotContractScript.legal_actions(7, 10, false)
 	assert(BotContractScript.action_names(initial) == ["fold", "bet"])
 	var bet := BotContractScript.find_action(initial, "bet")
@@ -25,10 +21,6 @@ func _test_contract_and_candidates() -> void:
 	assert(int(bet["max_amount"]) == 8)
 	assert(BotContractScript.is_legal_decision(initial, {"action": "bet", "amount": 8}))
 	assert(not BotContractScript.is_legal_decision(initial, {"action": "bet", "amount": 9}))
-	var candidates := BotContractScript.candidate_decisions(initial, 10)
-	assert(candidates.has({"action": "fold", "amount": 0}))
-	assert(candidates.has({"action": "bet", "amount": 1}))
-	assert(candidates.has({"action": "bet", "amount": 8}))
 
 	var follow := BotContractScript.legal_actions(9, 10, true)
 	assert(BotContractScript.action_names(follow) == ["check", "dai"])
@@ -37,8 +29,8 @@ func _test_contract_and_candidates() -> void:
 
 func _test_structured_history_and_privacy() -> void:
 	var game = LocalGameScript.new()
-	game.set_deferred_search_mode(true)
-	game.start_match(2, 2, 301)
+	game.set_auto_drive_bots(false)
+	game.start_match(2, 301)
 	var context: Dictionary = game.get_decision_context(game.active_seat_index)
 	assert(BotContractScript.validate_context(context))
 	var observation: Dictionary = context["observation"]
@@ -68,8 +60,8 @@ func _test_structured_history_and_privacy() -> void:
 
 func _test_clone_is_independent() -> void:
 	var game = LocalGameScript.new()
-	game.set_deferred_search_mode(true)
-	game.start_match(2, 2, 302)
+	game.set_auto_drive_bots(false)
+	game.start_match(2, 302)
 	var simulator = RoundSimulatorScript.from_snapshot(game._internal_round_snapshot())
 	var cloned = simulator.clone()
 	assert(cloned.state_hash() == simulator.state_hash())
@@ -80,8 +72,8 @@ func _test_clone_is_independent() -> void:
 
 func _test_simulated_next_round() -> void:
 	var game = LocalGameScript.new()
-	game.set_deferred_search_mode(true)
-	game.start_match(3, 2, 303)
+	game.set_auto_drive_bots(false)
+	game.start_match(3, 303)
 	var simulator = RoundSimulatorScript.from_snapshot(game._internal_round_snapshot())
 	var original_total := _simulator_total(simulator)
 	while simulator.phase == "playing":
@@ -106,8 +98,8 @@ func _test_simulated_next_round() -> void:
 func _test_simulator_matches_local_game() -> void:
 	for seed_value in range(410, 430):
 		var game = LocalGameScript.new()
-		game.set_deferred_search_mode(true)
-		game.start_match(3, 2, seed_value)
+		game.set_auto_drive_bots(false)
+		game.start_match(3, seed_value)
 		var simulator = RoundSimulatorScript.from_snapshot(game._internal_round_snapshot())
 		var safety := 0
 		while game.phase == "playing":
@@ -120,32 +112,6 @@ func _test_simulator_matches_local_game() -> void:
 			assert(_apply_to_local_game(game, actor, decision))
 			_assert_same_public_state(game, simulator)
 		assert(simulator.phase == "round_end")
-
-func _test_search_is_legal_and_reproducible() -> void:
-	var game = LocalGameScript.new()
-	game.set_deferred_search_mode(true)
-	game.start_match(3, 2, 777)
-	var context: Dictionary = game.get_decision_context(game.active_seat_index)
-	var first := SearchBotScript.analyze(context, {"fixed_samples": 4})
-	var second := SearchBotScript.analyze(context, {"fixed_samples": 4})
-	assert(first["decision"] == second["decision"])
-	assert(BotContractScript.is_legal_decision(context["legal_actions"], first["decision"]))
-	assert(int(first["stats"]["completed_samples"]) == 4)
-	assert(bool(first["stats"]["used_legacy_fallback"]))
-	for candidate in first["stats"]["candidates"]:
-		assert(int(candidate["samples"]) == 4)
-
-func _test_search_cancellation() -> void:
-	var game = LocalGameScript.new()
-	game.set_deferred_search_mode(true)
-	game.start_match(1, 2, 778)
-	var context: Dictionary = game.get_decision_context(game.active_seat_index)
-	var control = SearchControlScript.new()
-	control.cancel()
-	var result := SearchBotScript.analyze(context, {"fixed_samples": 20, "control": control})
-	assert(bool(result["stats"]["cancelled"]))
-	assert(BotContractScript.is_legal_decision(context["legal_actions"], result["decision"]))
-
 func _apply_to_local_game(game, actor: int, decision: Dictionary) -> bool:
 	if actor == 0:
 		return game.player_action(str(decision["action"]), int(decision["amount"]))

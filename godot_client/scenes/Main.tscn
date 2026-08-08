@@ -208,7 +208,7 @@ text = "开一桌"
 [node name="SetupHelp" type="Label" parent="RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.65098, 0.705882, 0.729412, 1)
-text = "选择对手数量和 Bot 强度。"
+text = "选择对手数量。"
 autowrap_mode = 3
 
 [node name="BotRow" type="HBoxContainer" parent="RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel"]
@@ -225,18 +225,6 @@ layout_mode = 2
 min_value = 1.0
 max_value = 5.0
 value = 3.0
-
-[node name="DifficultyRow" type="HBoxContainer" parent="RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel"]
-layout_mode = 2
-
-[node name="Label" type="Label" parent="RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel/DifficultyRow"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "Bot 难度"
-
-[node name="Difficulty" type="OptionButton" parent="RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel/DifficultyRow"]
-custom_minimum_size = Vector2(150, 0)
-layout_mode = 2
 
 [node name="StartButton" type="Button" parent="RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel"]
 custom_minimum_size = Vector2(0, 46)
@@ -333,5 +321,5 @@ scroll_following = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.443137, 0.509804, 0.533333, 1)
 theme_override_font_sizes/font_size = 13
-text = "本地规则引擎 · 无需服务器 · 规则以根目录 RULES.md 为准"
+text = "本地规则引擎 · 无需服务器 · 规则以 docs/rules/game-rules.md 为准"
 horizontal_alignment = 1

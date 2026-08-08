@@ -21,7 +21,7 @@ func _run() -> void:
 
 	_save_viewport("res://tests/table_preview_4p.png")
 
-	main.game.start_match(5, 2, 20260728)
+	main.game.start_match(5, 20260728)
 	main._render()
 	await process_frame
 	await process_frame

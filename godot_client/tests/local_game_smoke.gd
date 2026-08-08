@@ -6,7 +6,7 @@ func _init() -> void:
 	var game = LocalGameScript.new()
 	assert(game.get_state()["phase"] == "setup")
 
-	game.start_match(3, 1, 20260728)
+	game.start_match(3, 20260728)
 	var initial: Dictionary = game.get_state()
 	assert(initial["round_index"] == 1)
 	assert(initial["seats"].size() == 4)

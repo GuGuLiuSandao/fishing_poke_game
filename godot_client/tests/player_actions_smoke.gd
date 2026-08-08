@@ -7,7 +7,7 @@ func _init() -> void:
 	var found_human_turn := false
 
 	for seed_value in range(1, 100):
-		game.start_match(1, 1, seed_value)
+		game.start_match(1, seed_value)
 		var state: Dictionary = game.get_state()
 		if str(state["phase"]) == "playing" and int(state["active_seat_index"]) == 0:
 			found_human_turn = true

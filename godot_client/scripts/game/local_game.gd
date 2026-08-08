@@ -5,7 +5,6 @@ const HandRulesScript = preload("res://scripts/game/hand_rules.gd")
 const GameRulesScript = preload("res://scripts/game/game_rules.gd")
 const BotContractScript = preload("res://scripts/game/bot_contract.gd")
 const LegacyGeneBotScript = preload("res://scripts/game/legacy_gene_bot.gd")
-const SearchBotScript = preload("res://scripts/game/search_bot.gd")
 
 const STARTING_CHIPS := 100
 const HUMAN_SEAT_INDEX := 0
@@ -23,7 +22,6 @@ var round_message := ""
 var match_message := ""
 var match_result := ""
 var bot_count := 3
-var bot_difficulty := 2
 var human_seat_index := HUMAN_SEAT_INDEX
 
 var _rng := RandomNumberGenerator.new()
@@ -33,7 +31,7 @@ var _bet_order := 0
 var _next_starter_index := -1
 var _bot_action_provider: Callable
 var _bot_rngs: Array[RandomNumberGenerator] = []
-var _deferred_search_mode := false
+var _auto_drive_bots := true
 var _action_sequence := 0
 
 func _init() -> void:
@@ -46,7 +44,7 @@ func reset_to_setup() -> void:
 	active_seat_index = -1
 	pot = 0
 	seats = []
-	action_log = ["选择 Bot 数量和难度，然后开始挑战。"]
+	action_log = ["选择 Bot 数量，然后开始挑战。"]
 	structured_action_history = []
 	round_message = ""
 	match_message = ""
@@ -56,9 +54,8 @@ func reset_to_setup() -> void:
 	_next_starter_index = -1
 	_action_sequence = 0
 
-func start_match(new_bot_count: int = 3, difficulty: int = 2, seed_value: int = 0) -> void:
+func start_match(new_bot_count: int = 3, seed_value: int = 0) -> void:
 	bot_count = clampi(new_bot_count, 1, 5)
-	bot_difficulty = clampi(difficulty, 1, 3)
 	human_seat_index = clampi(human_seat_index, 0, bot_count)
 	if seed_value == 0:
 		_rng.randomize()
@@ -83,7 +80,7 @@ func start_match(new_bot_count: int = 3, difficulty: int = 2, seed_value: int = 
 	_start_round()
 
 func restart_match() -> void:
-	start_match(bot_count, bot_difficulty)
+	start_match(bot_count)
 
 func set_bot_action_provider(provider: Callable) -> void:
 	_bot_action_provider = provider
@@ -91,13 +88,8 @@ func set_bot_action_provider(provider: Callable) -> void:
 func set_human_seat_index(index: int) -> void:
 	human_seat_index = maxi(0, index)
 
-func set_deferred_search_mode(enabled: bool) -> void:
-	_deferred_search_mode = enabled
-
-func needs_search_bot_action() -> bool:
-	if not _deferred_search_mode or phase != "playing" or active_seat_index < 0:
-		return false
-	return bool(seats[active_seat_index]["is_bot"]) and bot_difficulty >= 2
+func set_auto_drive_bots(enabled: bool) -> void:
+	_auto_drive_bots = enabled
 
 func apply_bot_decision(decision: Dictionary) -> bool:
 	if phase != "playing" or active_seat_index < 0:
@@ -190,7 +182,6 @@ func get_state() -> Dictionary:
 		"match_message": match_message,
 		"match_result": match_result,
 		"bot_count": bot_count,
-		"bot_difficulty": bot_difficulty,
 		"human_seat_index": human_seat_index
 	}
 
@@ -408,6 +399,8 @@ func _next_active_index(from_index: int) -> int:
 	return -1
 
 func _drive_bots_until_human_or_end() -> void:
+	if not _auto_drive_bots:
+		return
 	var safety := 0
 	while phase == "playing" and active_seat_index != human_seat_index:
 		safety += 1
@@ -419,14 +412,8 @@ func _drive_bots_until_human_or_end() -> void:
 		var decision: Dictionary
 		if _bot_action_provider.is_valid():
 			decision = _bot_action_provider.call(_bot_context(active_seat_index, legal_actions))
-		elif bot_difficulty == 1:
-			decision = LegacyGeneBotScript.choose_action(_bot_context(active_seat_index, legal_actions))
-		elif _deferred_search_mode:
-			return
 		else:
-			var samples := 10 if bot_difficulty == 2 else 24
-			var context := _bot_context(active_seat_index, legal_actions)
-			decision = SearchBotScript.choose_action(context, {"fixed_samples": samples})
+			decision = LegacyGeneBotScript.choose_action(_bot_context(active_seat_index, legal_actions))
 		if not _apply_action(active_seat_index, str(decision.get("action", "")), int(decision.get("amount", 0))):
 			push_error("Bot %s 返回非法动作：%s" % [seat["name"], decision])
 			var legal_names := BotContractScript.action_names(legal_actions)

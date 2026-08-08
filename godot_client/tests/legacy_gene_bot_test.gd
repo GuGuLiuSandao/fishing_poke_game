@@ -73,7 +73,7 @@ func _test_context_hides_opponent_cards() -> void:
 	var context := {}
 	for seed_value in range(1, 100):
 		var game = LocalGameScript.new()
-		game.start_match(2, 1, seed_value)
+		game.start_match(2, seed_value)
 		if game.phase == "playing" and game.active_seat_index == 0:
 			context = game.get_decision_context(0)
 			break
