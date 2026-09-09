@@ -142,9 +142,14 @@ func get_state() -> Dictionary:
 		var show_cards := index == human_seat_index or bool(seat["revealed"])
 		var cards_text := "—"
 		var hand_name := ""
+		var visible_cards: Array = []
 		if not seat["cards"].is_empty():
 			cards_text = HandRulesScript.cards_text(seat["cards"]) if show_cards else "?? ??"
 			hand_name = str(seat["hand"]["name"]) if show_cards else ""
+			if show_cards:
+				visible_cards = seat["cards"].duplicate(true)
+			else:
+				visible_cards = [{"hidden": true}, {"hidden": true}]
 		visible_seats.append({
 			"name": seat["name"],
 			"is_bot": seat["is_bot"],
@@ -155,6 +160,7 @@ func get_state() -> Dictionary:
 			"last_bet": seat["last_bet"],
 			"status": seat["status"],
 			"cards_text": cards_text,
+			"cards": visible_cards,
 			"hand_name": hand_name,
 			"revealed": show_cards
 		})

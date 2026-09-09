@@ -10,6 +10,7 @@
 - 完整实现 [`docs/rules/game-rules.md`](../rules/game-rules.md) 中的 32 张牌、牌力、补底、下注、吃、带、过牌、弃牌、捡天水、平局和结算规则
 - 完整整场流程：连续多局、淘汰、胜负、下一局与重新开始
 - 动态 2～6 人牌桌、隐藏信息和对局日志
+- CC0 真实牌面、牌背、发牌/筹码动效与可关闭的桌面音效
 - 所有对手使用已经冻结参数的 `LegacyGeneBot`
 - Bot 只能读取自己的手牌和公开状态，并通过统一合法动作接口行动
 
@@ -18,6 +19,7 @@
 - `project.godot`：项目入口
 - `scenes/Main.tscn`：主场景
 - `scripts/main.gd`：桌面 UI、动态座位和交互
+- `assets/`：牌面、音效与对应第三方授权记录；来源见 [`ui-mvp.md`](ui-mvp.md)
 - `scripts/game/hand_rules.gd`：牌组、牌型与牌力比较
 - `scripts/game/game_rules.gd`：补底、信用与结算公式
 - `scripts/game/bot_contract.gd`：Bot 公开观察、合法动作和决策契约

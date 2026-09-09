@@ -17,6 +17,7 @@
 ## 开发
 
 - [`development/godot.md`](development/godot.md)：Godot 客户端结构、启动方式和验证命令。
+- [`development/ui-mvp.md`](development/ui-mvp.md)：MVP 界面方向、外部实现参考、素材来源和授权记录。
 
 ## 维护约定
 
