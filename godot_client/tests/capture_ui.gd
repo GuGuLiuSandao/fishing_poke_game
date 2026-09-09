@@ -28,6 +28,14 @@ func _run() -> void:
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://tests/table_preview_6p.png")
 
+	root.size = Vector2i(1280, 720)
+	main.game.start_match(3, 20260728)
+	main._render()
+	await process_frame
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://tests/table_preview_1280.png")
+
 	print("capture_ui: previews saved")
 	quit()
 
