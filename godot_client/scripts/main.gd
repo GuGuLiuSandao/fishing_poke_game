@@ -1,509 +1,446 @@
 extends Control
 
 const LocalGameScript = preload("res://scripts/game/local_game.gd")
-
-const CARD_BACK = preload("res://assets/cards/card_back.png")
+const Styles = preload("res://scripts/ui/table_theme.gd")
+const PokerTable = preload("res://scripts/ui/poker_table.gd")
+const ActionBar = preload("res://scripts/ui/action_bar.gd")
 const SFX_SHUFFLE = preload("res://assets/audio/card_shuffle.ogg")
 const SFX_CARD = preload("res://assets/audio/card_slide.ogg")
 const SFX_FOLD = preload("res://assets/audio/card_place.ogg")
 const SFX_CHIP = preload("res://assets/audio/chip_lay.ogg")
 const SFX_SETTLE = preload("res://assets/audio/chips_collide.ogg")
 
-const PANEL_SIZE := Vector2(220, 174)
-const CARD_SIZE := Vector2(54, 72)
+const RULES := """[b]目标[/b]
+每人 100 底。一局结束时，筹码小于或等于 0 的玩家被淘汰。淘汰所有对手即赢得挑战，你被淘汰时挑战结束。
 
-var game: RefCounted
-var seat_views: Array = []
-var _card_texture_cache: Dictionary = {}
-var _previous_pot := 0
-var _previous_round := 0
-var _previous_phase := "setup"
+[b]怎么行动[/b]
+第一次轮到你，可以弃牌或下注。下注至少 1 底，最多投入当前底池或你的筹码加 1，取较小值。下满底池叫「吃」。
+你下注过之后，再轮到你可以过牌或「带」。过牌保留比牌资格。带须投入与当时底池相同的金额，筹码可用到 −1。
+有人追加投入后，从这位玩家的下一家继续行动。绕回最后下注的人时比牌，只剩一家时直接结算。
+
+[b]两张牌怎么比[/b]
+从弱到强：普通 0～9 点、2+8、Q+8、Q+9、同色对子、至尊（大王+红桃 3）。
+普通牌取点数总和的个位数。大王算 6，J 算 11，Q 算 12。同点只比最高权重牌。权重从弱到强：黑 10、红 4、红 8、2、Q。
+相同牌面且同色才算对子。对子从弱到强：普通对子、黑 10 对、红 4 对、红 8 对、2 对、Q 对。
+
+[b]底池怎么分[/b]
+比牌胜出或下注打跑其他玩家时，收取底池与最后一次下注两倍中的较小值。若从未下注就剩你一人，普通 8 点或更强可捡天水、收走整个底池。
+平局或捡天水失败时底池保留。每局开始时，底池不超过本局人数的一半（向下取整），每位参与者补 1 底。"""
+
+var game := LocalGameScript.new()
+var table := PokerTable.new()
+var action_bar := ActionBar.new()
+var start_button: Button
+var history_button: Button
+var rules_button: Button
+var settings_button: Button
+var restart_button: Button
+var _round_label: Label
+var _setup := PanelContainer.new()
+var _bot_buttons: Array[Button] = []
+var _setup_note: Label
+var _bot_count := 3
+var _bot_timer := Timer.new()
+var _deal_timer := Timer.new()
+var _audio_player := AudioStreamPlayer.new()
+var _payout_audio := AudioStreamPlayer.new()
 var _sound_enabled := true
-var _audio_player: AudioStreamPlayer
-
-@onready var header: PanelContainer = $RootMargin/RootVBox/Header
-@onready var table_wrap: PanelContainer = $RootMargin/RootVBox/Content/TableWrap
-@onready var table_surface: PanelContainer = $RootMargin/RootVBox/Content/TableWrap/TableArea/TableSurface
-@onready var seat_layer: Control = $RootMargin/RootVBox/Content/TableWrap/TableArea/SeatLayer
-@onready var sidebar: PanelContainer = $RootMargin/RootVBox/Content/Sidebar
-
-@onready var round_value: Label = $RootMargin/RootVBox/Header/HeaderMargin/HeaderRow/RoundBox/Value
-@onready var pot_value: Label = $RootMargin/RootVBox/Header/HeaderMargin/HeaderRow/PotBox/Value
-@onready var phase_value: Label = $RootMargin/RootVBox/Header/HeaderMargin/HeaderRow/PhaseBox/Value
-@onready var sound_button: Button = $RootMargin/RootVBox/Header/HeaderMargin/HeaderRow/SoundButton
-@onready var table_pot: Label = $RootMargin/RootVBox/Content/TableWrap/TableArea/TableSurface/CenterVBox/TablePot
-@onready var round_message: Label = $RootMargin/RootVBox/Content/TableWrap/TableArea/TableSurface/CenterVBox/RoundMessage
-
-@onready var setup_panel: VBoxContainer = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel
-@onready var bot_count_input: SpinBox = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel/BotRow/BotCount
-@onready var start_button: Button = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel/StartButton
-@onready var action_help: Label = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/ActionHelp
-@onready var bet_amount_input: SpinBox = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/BetAmount
-@onready var first_action_row: HBoxContainer = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/FirstActionRow
-@onready var bet_button: Button = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/FirstActionRow/BetButton
-@onready var eat_button: Button = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/FirstActionRow/EatButton
-@onready var fold_button: Button = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/FirstActionRow/FoldButton
-@onready var follow_action_row: HBoxContainer = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/FollowActionRow
-@onready var check_button: Button = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/FollowActionRow/CheckButton
-@onready var dai_button: Button = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/FollowActionRow/DaiButton
-@onready var next_round_button: Button = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/NextRoundButton
-@onready var restart_button: Button = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/RestartButton
-@onready var log_text: RichTextLabel = $RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/LogText
+var _motion_enabled := true
+var _manual_peek := false
+var _hand_open := true
+var _dealing := false
+var _overlay := ColorRect.new()
+var _dialog := PanelContainer.new()
+var _dialog_body := VBoxContainer.new()
+var _dialog_close: Button
+var _focus_before_dialog: Control
+var _history: RichTextLabel
 
 func _ready() -> void:
-	game = LocalGameScript.new()
-	_audio_player = AudioStreamPlayer.new()
-	_audio_player.volume_db = -7.0
+	theme = Styles.build()
+	game.set_auto_drive_bots(false)
+	_build_surface()
+	_build_overlay()
+	_setup.resized.connect(_center_setup)
+	resized.connect(_center_setup)
+	table.hand_opened.connect(_open_hand)
+	action_bar.action_requested.connect(_play_action)
+	action_bar.next_round_requested.connect(_next_round)
+	action_bar.restart_requested.connect(_restart)
+	_bot_timer.one_shot = true
+	_bot_timer.timeout.connect(_step_bot)
+	add_child(_bot_timer)
+	_deal_timer.one_shot = true
+	_deal_timer.timeout.connect(_finish_deal)
+	add_child(_deal_timer)
+	_audio_player.volume_db = -9.0
 	add_child(_audio_player)
-
-	start_button.pressed.connect(_on_start_pressed)
-	bet_button.pressed.connect(_on_bet_pressed)
-	eat_button.pressed.connect(_on_eat_pressed)
-	fold_button.pressed.connect(_on_fold_pressed)
-	check_button.pressed.connect(_on_check_pressed)
-	dai_button.pressed.connect(_on_dai_pressed)
-	next_round_button.pressed.connect(_on_next_round_pressed)
-	restart_button.pressed.connect(_on_restart_pressed)
-	sound_button.pressed.connect(_on_sound_pressed)
-	bet_amount_input.value_changed.connect(_on_bet_amount_changed)
-	seat_layer.resized.connect(_layout_seats)
-
-	_apply_styles()
+	_payout_audio.stream = SFX_SETTLE
+	_payout_audio.volume_db = -12.0
+	add_child(_payout_audio)
 	_render()
 
-func _on_start_pressed() -> void:
-	game.start_match(int(bot_count_input.value))
-	_render()
+func _build_surface() -> void:
+	var background := TextureRect.new()
+	background.mouse_filter = MOUSE_FILTER_IGNORE
+	background.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	var texture := GradientTexture2D.new()
+	texture.width = 960
+	texture.height = 540
+	texture.fill = GradientTexture2D.FILL_RADIAL
+	texture.fill_from = Vector2(0.5, 0.42)
+	texture.fill_to = Vector2(1.0, 0.86)
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color("#292823"))
+	gradient.set_color(1, Color("#101213"))
+	texture.gradient = gradient
+	background.texture = texture
+	add_child(background)
 
-func _on_bet_pressed() -> void:
-	if game.player_action("bet", int(bet_amount_input.value)):
-		_render()
+	var inset := Styles.margin(28, 16)
+	inset.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	inset.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(inset)
+	var column := VBoxContainer.new()
+	column.mouse_filter = MOUSE_FILTER_IGNORE
+	column.add_theme_constant_override("separation", 10)
+	inset.add_child(column)
+	column.add_child(_build_header())
+	column.add_child(table)
+	column.add_child(action_bar)
+	_build_setup()
 
-func _on_eat_pressed() -> void:
-	var state: Dictionary = game.get_state()
-	if game.player_action("bet", int(state["pot"])):
-		_render()
+func _build_header() -> HBoxContainer:
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 8)
+	header.custom_minimum_size.y = 49
+	var mark := TextureRect.new()
+	mark.texture = preload("res://assets/icon.svg")
+	mark.custom_minimum_size = Vector2(40, 40)
+	mark.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	mark.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	mark.mouse_filter = MOUSE_FILTER_IGNORE
+	header.add_child(mark)
+	header.add_child(Styles.label("钓鱼", 26))
+	var divider := VSeparator.new()
+	divider.custom_minimum_size.x = 16
+	header.add_child(divider)
+	_round_label = Styles.label("单机牌桌", 15, Styles.MUTED)
+	header.add_child(_round_label)
+	header.add_child(Styles.spacer())
+	history_button = Styles.button("牌局记录", "Quiet")
+	history_button.pressed.connect(_open_history)
+	header.add_child(history_button)
+	rules_button = Styles.button("玩法", "Quiet")
+	rules_button.pressed.connect(_open_rules)
+	header.add_child(rules_button)
+	settings_button = Styles.button("设置", "Quiet")
+	settings_button.pressed.connect(_open_settings)
+	header.add_child(settings_button)
+	restart_button = Styles.button("重新开始", "Quiet")
+	restart_button.pressed.connect(_confirm_restart)
+	header.add_child(restart_button)
+	return header
 
-func _on_fold_pressed() -> void:
-	if game.player_action("fold"):
-		_play_sfx(SFX_FOLD)
-		_render()
+func _build_setup() -> void:
+	_setup.add_theme_stylebox_override("panel", Styles.box(Color("#151c19"), Color("#92774c"), 15))
+	_setup.custom_minimum_size.x = 460
+	add_child(_setup)
+	var inset := Styles.margin(22, 20)
+	_setup.add_child(inset)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 12)
+	inset.add_child(column)
+	var title := Styles.label("开始挑战", 32)
+	column.add_child(title)
+	column.add_child(Styles.label("选择对手人数", 16, Styles.MUTED))
+	var counts := HBoxContainer.new()
+	counts.add_theme_constant_override("separation", 8)
+	column.add_child(counts)
+	var group := ButtonGroup.new()
+	for count in range(1, 6):
+		var button := Styles.button(str(count), "Button")
+		button.toggle_mode = true
+		button.button_group = group
+		button.button_pressed = count == _bot_count
+		button.size_flags_horizontal = SIZE_EXPAND_FILL
+		button.accessibility_name = "%d 名对手" % count
+		button.pressed.connect(func() -> void: _select_bot_count(count))
+		counts.add_child(button)
+		_bot_buttons.append(button)
+	_setup_note = Styles.label("", 15, Styles.MUTED)
+	column.add_child(_setup_note)
+	_select_bot_count(_bot_count)
+	start_button = Styles.button("入座发牌", "Gold", 50)
+	start_button.add_theme_font_size_override("font_size", 19)
+	start_button.pressed.connect(_start_match)
+	column.add_child(start_button)
 
-func _on_check_pressed() -> void:
-	if game.player_action("check"):
-		_play_sfx(SFX_CARD)
-		_render()
+func _center_setup() -> void:
+	_setup.position = ((size - _setup.size) / 2.0 + Vector2(0, 13)).round()
 
-func _on_dai_pressed() -> void:
-	if game.player_action("dai"):
-		_render()
+func _select_bot_count(count: int) -> void:
+	_bot_count = count
+	for index in range(_bot_buttons.size()):
+		_bot_buttons[index].theme_type_variation = "Gold" if index == _bot_count - 1 else "Button"
+	_setup_note.text = "%d 人桌 · 每人 100 底" % (_bot_count + 1)
 
-func _on_next_round_pressed() -> void:
-	if game.start_next_round():
-		_render()
+func _start_match() -> void:
+	game.start_match(_bot_count)
+	_begin_deal()
 
-func _on_restart_pressed() -> void:
+func _restart() -> void:
 	game.restart_match()
+	_close_dialog()
+	_begin_deal()
+
+func _next_round() -> void:
+	if game.start_next_round():
+		_begin_deal()
+
+func _begin_deal() -> void:
+	_stop_timers()
+	_hand_open = not _manual_peek
+	_dealing = _motion_enabled
 	_render()
-
-func _on_sound_pressed() -> void:
-	_sound_enabled = not _sound_enabled
-	sound_button.text = "声音  开" if _sound_enabled else "声音  关"
-	if not _sound_enabled:
-		_audio_player.stop()
+	if _dealing:
+		_play_sfx(SFX_SHUFFLE)
+		table.start_deal(game.starter_seat_index)
+		_deal_timer.start(0.44)
 	else:
-		_play_sfx(SFX_CARD)
+		_after_deal()
 
-func _on_bet_amount_changed(value: float) -> void:
-	bet_button.text = "下注  %d" % int(value)
+func _finish_deal() -> void:
+	_dealing = false
+	table.clear_effects()
+	_render()
+	_after_deal()
+
+func _after_deal() -> void:
+	_play_sfx(SFX_CARD)
+	_schedule_bot()
+	_focus_for_turn()
+
+func _open_hand() -> void:
+	if _dealing or _hand_open:
+		return
+	_hand_open = true
+	table.render(game.get_state(), false)
+	if _motion_enabled:
+		table.animate_open_hand()
+	_play_sfx(SFX_CARD)
+	_focus_for_turn()
+
+func _play_action(action: String, amount: int) -> void:
+	if _dealing or _overlay.visible:
+		return
+	if game.player_action(action, amount):
+		_after_action()
+
+func _step_bot() -> void:
+	if game.step_bot_turn():
+		_after_action()
+
+func _schedule_bot() -> void:
+	if game.phase == "playing" and game.active_seat_index != game.human_seat_index and not _overlay.visible:
+		_bot_timer.start(0.36 if _motion_enabled else 0.05)
+
+func _after_action() -> void:
+	_render()
+	var event: Dictionary = game.structured_action_history.back()
+	if _motion_enabled:
+		table.animate_action(event, game.settlement)
+		table.animate_reveal(game.settlement)
+	match str(event["action"]):
+		"fold":
+			_play_sfx(SFX_FOLD)
+		"check":
+			_play_sfx(SFX_CARD)
+		_:
+			_play_sfx(SFX_CHIP)
+	if game.phase in ["round_end", "game_over"] and _sound_enabled:
+		_payout_audio.play()
+	_schedule_bot()
+	if get_viewport().gui_get_focus_owner() == null:
+		_focus_for_turn()
+
+func _focus_for_turn() -> void:
+	if _overlay.visible:
+		return
+	var actions := game.get_available_actions()
+	if not actions.is_empty() and not _hand_open:
+		var view = table.views[game.human_seat_index]
+		if view.open_button.is_visible_in_tree():
+			view.open_button.grab_focus()
+			return
+	if actions.has("bet"):
+		if action_bar.slider.editable:
+			action_bar.slider.grab_focus()
+		else:
+			action_bar.amount_input.grab_focus()
+	elif actions.has("check"):
+		if action_bar.dai_button.disabled:
+			action_bar.check_button.grab_focus()
+	elif actions.has("fold"):
+		action_bar.fold_button.grab_focus()
+	elif game.phase == "round_end":
+		action_bar.next_button.grab_focus()
+	elif game.phase == "game_over":
+		action_bar.restart_button.grab_focus()
 
 func _render() -> void:
-	var state: Dictionary = game.get_state()
-	var current_phase := str(state["phase"])
-	var actions: Array = state["available_actions"]
-	var current_pot := int(state["pot"])
-	var current_round := int(state["round_index"])
+	var state := game.get_state()
+	var setup := game.phase == "setup"
+	_setup.visible = setup
+	history_button.visible = not setup
+	restart_button.visible = not setup and game.phase != "game_over"
+	_round_label.text = "单机牌桌" if setup else "第 %d 局  ·  %d 人桌" % [game.round_index, game.bot_count + 1]
+	table.render(state, not _hand_open)
+	action_bar.render(state, _dealing)
+	if is_instance_valid(_history):
+		_render_history(state["action_log"])
 
-	round_value.text = "—" if current_round == 0 else str(current_round)
-	pot_value.text = "%d 底" % current_pot
-	table_pot.text = str(current_pot)
-	phase_value.text = _phase_text(current_phase)
-
-	setup_panel.visible = current_phase == "setup"
-	restart_button.visible = current_phase != "setup"
-	next_round_button.visible = current_phase == "round_end"
-	bet_amount_input.visible = actions.has("bet")
-	first_action_row.visible = actions.has("bet") or actions.has("fold")
-	follow_action_row.visible = actions.has("check") or actions.has("dai")
-	bet_button.visible = actions.has("bet")
-	fold_button.visible = actions.has("fold")
-	check_button.visible = actions.has("check")
-	dai_button.visible = actions.has("dai")
-
-	if actions.has("bet"):
-		var maximum := int(state["max_bet"])
-		bet_amount_input.max_value = maximum
-		bet_amount_input.value = clampi(int(bet_amount_input.value), 1, maximum)
-		eat_button.visible = maximum >= current_pot
-		eat_button.text = "吃满  %d" % current_pot
-		bet_button.text = "下注  %d" % int(bet_amount_input.value)
-	else:
-		eat_button.visible = false
-	if actions.has("dai"):
-		dai_button.text = "带满  %d" % int(state["dai_amount"])
-
-	action_help.text = _action_help(state)
-	round_message.text = _center_message(state)
-	_render_log(state["action_log"])
-	_render_seats(state)
-	_render_feedback(current_pot, current_round, current_phase)
-
-	_previous_pot = current_pot
-	_previous_round = current_round
-	_previous_phase = current_phase
-
-func _render_feedback(current_pot: int, current_round: int, current_phase: String) -> void:
-	if current_round > _previous_round:
-		_play_sfx(SFX_SHUFFLE)
-		call_deferred("_animate_deal")
-	elif current_pot > _previous_pot:
-		_play_sfx(SFX_CHIP)
-		_animate_pot()
-	elif current_phase == "round_end" and _previous_phase != "round_end":
-		_play_sfx(SFX_SETTLE)
-		_animate_pot()
-
-func _render_seats(state: Dictionary) -> void:
-	var seats: Array = state["seats"]
-	if seat_views.size() != seats.size():
-		_rebuild_seat_views(seats.size())
-
-	for index in range(seats.size()):
-		var seat: Dictionary = seats[index]
-		var view: Dictionary = seat_views[index]
-		var is_active := index == int(state["active_seat_index"])
-		var is_human := index == int(state["human_seat_index"])
-
-		view["name"].text = str(seat["name"])
-		view["avatar"].text = "你" if is_human else str(seat["name"]).left(1)
-		view["chips"].text = "●  %d 底" % int(seat["chips"])
-		view["hand"].text = str(seat["hand_name"])
-		view["status"].text = "▶ %s" % str(seat["status"]) if is_active else str(seat["status"])
-		view["status"].add_theme_color_override(
-			"font_color",
-			Color("#f7d56b") if is_active else Color("#9eabad")
-		)
-
-		var card_views: Array = view["cards"]
-		var visible_cards: Array = seat["cards"]
-		for card_index in range(card_views.size()):
-			var card_view: TextureRect = card_views[card_index]
-			card_view.visible = card_index < visible_cards.size()
-			if card_view.visible:
-				var card: Dictionary = visible_cards[card_index]
-				card_view.texture = _texture_for_card(card)
-				card_view.tooltip_text = _card_tooltip(card)
-				card_view.modulate = Color(1, 1, 1, 0.42) if bool(seat["folded"]) else Color.WHITE
-
-		var panel: PanelContainer = view["panel"]
-		if is_active:
-			panel.add_theme_stylebox_override("panel", _seat_style(Color("#42371e"), Color("#f3cc62"), 3))
-		elif not bool(seat["participating"]):
-			panel.add_theme_stylebox_override("panel", _seat_style(Color("#151b1e"), Color("#2b3539"), 1))
-		elif bool(seat["folded"]):
-			panel.add_theme_stylebox_override("panel", _seat_style(Color("#202629"), Color("#3b464a"), 1))
-		elif is_human:
-			panel.add_theme_stylebox_override("panel", _seat_style(Color("#123a35"), Color("#48bba6"), 2))
-		else:
-			panel.add_theme_stylebox_override("panel", _seat_style(Color("#182429"), Color("#465a61"), 1))
-	_layout_seats()
-
-func _rebuild_seat_views(count: int) -> void:
-	for child in seat_layer.get_children():
-		child.queue_free()
-	seat_views = []
-
-	for index in range(count):
-		var panel := PanelContainer.new()
-		panel.custom_minimum_size = PANEL_SIZE
-		panel.size = PANEL_SIZE
-		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		seat_layer.add_child(panel)
-
-		var margin := MarginContainer.new()
-		margin.add_theme_constant_override("margin_left", 12)
-		margin.add_theme_constant_override("margin_top", 10)
-		margin.add_theme_constant_override("margin_right", 12)
-		margin.add_theme_constant_override("margin_bottom", 9)
-		panel.add_child(margin)
-
-		var column := VBoxContainer.new()
-		column.add_theme_constant_override("separation", 4)
-		margin.add_child(column)
-
-		var header_row := HBoxContainer.new()
-		header_row.add_theme_constant_override("separation", 8)
-		column.add_child(header_row)
-
-		var avatar_label := Label.new()
-		avatar_label.custom_minimum_size = Vector2(34, 34)
-		avatar_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		avatar_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		avatar_label.add_theme_font_size_override("font_size", 15)
-		avatar_label.add_theme_color_override("font_color", Color("#102223"))
-		avatar_label.add_theme_stylebox_override("normal", _avatar_style(index))
-		header_row.add_child(avatar_label)
-
-		var identity := VBoxContainer.new()
-		identity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		identity.add_theme_constant_override("separation", 0)
-		header_row.add_child(identity)
-
-		var name_label := Label.new()
-		name_label.add_theme_font_size_override("font_size", 17)
-		name_label.add_theme_color_override("font_color", Color("#f3f4ec"))
-		identity.add_child(name_label)
-
-		var chips_label := Label.new()
-		chips_label.add_theme_font_size_override("font_size", 13)
-		chips_label.add_theme_color_override("font_color", Color("#f2c85b"))
-		identity.add_child(chips_label)
-
-		var cards_row := HBoxContainer.new()
-		cards_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		cards_row.add_theme_constant_override("separation", 6)
-		column.add_child(cards_row)
-
-		var card_views: Array = []
-		for card_index in range(2):
-			var card_view := TextureRect.new()
-			card_view.custom_minimum_size = CARD_SIZE
-			card_view.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			card_view.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-			card_view.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-			card_view.mouse_filter = Control.MOUSE_FILTER_PASS
-			cards_row.add_child(card_view)
-			card_views.append(card_view)
-
-		var footer_row := HBoxContainer.new()
-		column.add_child(footer_row)
-
-		var hand_label := Label.new()
-		hand_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		hand_label.add_theme_font_size_override("font_size", 14)
-		hand_label.add_theme_color_override("font_color", Color("#70d5c0"))
-		footer_row.add_child(hand_label)
-
-		var status_label := Label.new()
-		status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		status_label.add_theme_font_size_override("font_size", 13)
-		status_label.add_theme_color_override("font_color", Color("#9eabad"))
-		status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		footer_row.add_child(status_label)
-
-		seat_views.append({
-			"panel": panel,
-			"avatar": avatar_label,
-			"name": name_label,
-			"chips": chips_label,
-			"cards": card_views,
-			"hand": hand_label,
-			"status": status_label
-		})
-
-	call_deferred("_layout_seats")
-
-func _layout_seats() -> void:
-	if seat_views.is_empty() or seat_layer.size.x <= 0.0:
-		return
-	var center := seat_layer.size / 2.0
-	var radius_x := maxf(0.0, (seat_layer.size.x - PANEL_SIZE.x) / 2.0 - 12.0)
-	var radius_y := maxf(0.0, (seat_layer.size.y - PANEL_SIZE.y) / 2.0 - 6.0)
-	var count := seat_views.size()
-
-	for index in range(count):
-		var angle := PI / 2.0 + TAU * float(index) / float(count)
-		var position := center + Vector2(cos(angle) * radius_x, sin(angle) * radius_y) - PANEL_SIZE / 2.0
-		var panel: PanelContainer = seat_views[index]["panel"]
-		panel.position = position.round()
-		panel.size = PANEL_SIZE
-
-func _texture_for_card(card: Dictionary) -> Texture2D:
-	if bool(card.get("hidden", false)):
-		return CARD_BACK
-	var rank := str(card.get("rank", ""))
-	if rank == "JOKER":
-		return load("res://assets/cards/card_joker.png")
-	var suit_code: String = str({"H": "h", "D": "d", "S": "s", "C": "c"}.get(str(card.get("suit", "")), ""))
-	var rank_number := 0
-	if rank == "J":
-		rank_number = 11
-	elif rank == "Q":
-		rank_number = 12
-	elif rank.is_valid_int():
-		rank_number = int(rank)
-	var path := "res://assets/cards/card_%s_%02d.png" % [suit_code, rank_number]
-	if not _card_texture_cache.has(path):
-		_card_texture_cache[path] = load(path)
-	return _card_texture_cache[path] if _card_texture_cache[path] != null else CARD_BACK
-
-func _card_tooltip(card: Dictionary) -> String:
-	if bool(card.get("hidden", false)):
-		return "未公开手牌"
-	return str(card.get("label", "手牌"))
-
-func _render_log(lines: Array) -> void:
-	var output: PackedStringArray = []
-	var first_index := maxi(0, lines.size() - 12)
-	for index in range(first_index, lines.size()):
-		var color := "#f1d477" if index == lines.size() - 1 else "#9eabad"
-		output.append("[color=%s]›[/color] %s" % [color, str(lines[index])])
-	log_text.text = "\n".join(output)
-	log_text.scroll_to_line(maxi(0, output.size() - 1))
-
-func _action_help(state: Dictionary) -> String:
-	var phase := str(state["phase"])
-	var actions: Array = state["available_actions"]
-	if phase == "setup":
-		return "牌桌已备好。选定对手后立即发牌。"
-	if phase == "round_end":
-		return "本局已结算。牌面仍会保留，确认后再开下一局。"
-	if phase == "game_over":
-		return str(state["match_message"])
-	if actions.has("bet"):
-		return "首次行动只能下注或弃牌，可投入 1～%d 底。" % int(state["max_bet"])
-	if actions.has("check"):
-		if actions.has("dai"):
-			return "你已下注过：过牌保留比牌资格，或带满当前底池。"
-		return "当前筹码不足以带满，只能过牌并保留比牌资格。"
-	return "对手正在思考，请留意牌桌动态。"
-
-func _center_message(state: Dictionary) -> String:
-	var phase := str(state["phase"])
-	if phase == "setup":
-		return "等你入座\n选择右侧配置，开一桌"
-	if phase == "game_over":
-		return str(state["match_message"])
-	if not str(state["round_message"]).is_empty():
-		return str(state["round_message"])
-	var active_index := int(state["active_seat_index"])
-	if active_index >= 0:
-		var active_name := str(state["seats"][active_index]["name"])
-		return "轮到你 · 请选择行动" if active_index == int(state["human_seat_index"]) else "%s 正在行动" % active_name
-	return "等待行动"
-
-func _phase_text(phase: String) -> String:
-	match phase:
-		"setup":
-			return "等待入座"
-		"playing":
-			return "牌局进行中"
-		"round_end":
-			return "本局结算"
-		"game_over":
-			return "挑战结束"
-	return phase
-
-func _animate_deal() -> void:
-	for seat_index in range(seat_views.size()):
-		var card_views: Array = seat_views[seat_index]["cards"]
-		for card_index in range(card_views.size()):
-			var card: TextureRect = card_views[card_index]
-			if not card.visible:
-				continue
-			card.pivot_offset = card.size / 2.0
-			card.scale = Vector2(0.55, 0.55)
-			card.modulate.a = 0.0
-			var tween := create_tween()
-			tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-			tween.tween_interval(float(seat_index * 2 + card_index) * 0.035)
-			tween.set_parallel(true)
-			tween.tween_property(card, "scale", Vector2.ONE, 0.24)
-			tween.tween_property(card, "modulate:a", 1.0, 0.15)
-
-func _animate_pot() -> void:
-	table_pot.pivot_offset = table_pot.size / 2.0
-	var tween := create_tween()
-	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	table_pot.scale = Vector2(1.28, 1.28)
-	table_pot.modulate = Color("#fff2a8")
-	tween.set_parallel(true)
-	tween.tween_property(table_pot, "scale", Vector2.ONE, 0.28)
-	tween.tween_property(table_pot, "modulate", Color.WHITE, 0.28)
+func _stop_timers() -> void:
+	_bot_timer.stop()
+	_deal_timer.stop()
+	table.clear_effects()
 
 func _play_sfx(stream: AudioStream) -> void:
-	if not _sound_enabled or _audio_player == null:
+	if _sound_enabled:
+		_audio_player.stream = stream
+		_audio_player.play()
+
+func _build_overlay() -> void:
+	_overlay.color = Color(0.01, 0.014, 0.014, 0.77)
+	_overlay.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	_overlay.hide()
+	add_child(_overlay)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	center.mouse_filter = MOUSE_FILTER_IGNORE
+	_overlay.add_child(center)
+	_dialog.custom_minimum_size.x = 560
+	_dialog.add_theme_stylebox_override("panel", Styles.box(Styles.PANEL, Color("#796649"), 14))
+	center.add_child(_dialog)
+	var inset := Styles.margin(14, 12)
+	_dialog.add_child(inset)
+	_dialog_body.add_theme_constant_override("separation", 12)
+	inset.add_child(_dialog_body)
+
+func _show_dialog(title: String) -> void:
+	_focus_before_dialog = get_viewport().gui_get_focus_owner()
+	_overlay.show()
+	_bot_timer.stop()
+	if _dealing:
+		_deal_timer.stop()
+		_finish_deal()
+	for child in _dialog_body.get_children():
+		_dialog_body.remove_child(child)
+		child.queue_free()
+	_history = null
+	var head := HBoxContainer.new()
+	head.add_child(Styles.label(title, 24))
+	head.add_child(Styles.spacer())
+	_dialog_close = Styles.button("关闭", "Quiet")
+	_dialog_close.pressed.connect(_close_dialog)
+	head.add_child(_dialog_close)
+	_dialog_body.add_child(head)
+	_dialog_close.grab_focus()
+
+func _close_dialog() -> void:
+	if not _overlay.visible:
 		return
-	_audio_player.stream = stream
-	_audio_player.play()
+	_overlay.hide()
+	if is_instance_valid(_focus_before_dialog) and _focus_before_dialog.is_visible_in_tree():
+		_focus_before_dialog.grab_focus()
+	_schedule_bot()
 
-func _apply_styles() -> void:
-	header.add_theme_stylebox_override("panel", _panel_style(Color("#111c20"), Color("#26373d"), 12))
-	table_wrap.add_theme_stylebox_override("panel", _panel_style(Color("#0b1215"), Color("#203036"), 12))
-	sidebar.add_theme_stylebox_override("panel", _panel_style(Color("#101b1f"), Color("#2a3b41"), 12))
+func _open_history() -> void:
+	_show_dialog("牌局记录")
+	_history = _dialog_text(310)
+	_history.scroll_following = true
+	_render_history(game.get_state()["action_log"])
 
-	var table_style := StyleBoxFlat.new()
-	table_style.bg_color = Color("#14513e")
-	table_style.border_color = Color("#8a5e32")
-	table_style.set_border_width_all(12)
-	table_style.set_corner_radius_all(132)
-	table_style.shadow_color = Color(0, 0, 0, 0.5)
-	table_style.shadow_size = 20
-	table_style.shadow_offset = Vector2(0, 8)
-	table_surface.add_theme_stylebox_override("panel", table_style)
+func _render_history(lines: Array) -> void:
+	var formatted := PackedStringArray()
+	for line in lines:
+		if str(line).begins_with("——"):
+			formatted.append("[color=#f2cd86][b]%s[/b][/color]" % line)
+		else:
+			formatted.append(str(line))
+	_history.text = "\n".join(formatted)
 
-	_style_button(start_button, Color("#e0ae35"), Color("#17130a"))
-	_style_button(bet_button, Color("#d9a82f"), Color("#17130a"))
-	_style_button(eat_button, Color("#f0ca5b"), Color("#17130a"))
-	_style_button(fold_button, Color("#9e3f46"), Color.WHITE)
-	_style_button(check_button, Color("#3b5663"), Color.WHITE)
-	_style_button(dai_button, Color("#2e816b"), Color.WHITE)
-	_style_button(next_round_button, Color("#2e816b"), Color.WHITE)
-	_style_button(restart_button, Color("#303e43"), Color("#d9e1e2"))
-	_style_button(sound_button, Color("#24343a"), Color("#d9e1e2"))
+func _open_rules() -> void:
+	_show_dialog("钓鱼玩法")
+	_dialog_text(380).text = RULES
 
-	for button in [start_button, bet_button, eat_button, fold_button, check_button, dai_button, next_round_button]:
-		button.add_theme_font_size_override("font_size", 16)
+func _dialog_text(height: int) -> RichTextLabel:
+	var label := RichTextLabel.new()
+	label.bbcode_enabled = true
+	label.selection_enabled = true
+	label.focus_mode = Control.FOCUS_ALL
+	label.custom_minimum_size.y = height
+	_dialog_body.add_child(label)
+	return label
 
-func _style_button(button: Button, background: Color, foreground: Color) -> void:
-	var normal := _panel_style(background, background.lightened(0.12), 8)
-	var hover := _panel_style(background.lightened(0.08), background.lightened(0.25), 8)
-	var pressed := _panel_style(background.darkened(0.09), background, 8)
-	var focus := _panel_style(background.lightened(0.04), Color("#f5db81"), 8)
-	focus.set_border_width_all(2)
-	button.add_theme_stylebox_override("normal", normal)
-	button.add_theme_stylebox_override("hover", hover)
-	button.add_theme_stylebox_override("pressed", pressed)
-	button.add_theme_stylebox_override("focus", focus)
-	button.add_theme_color_override("font_color", foreground)
-	button.add_theme_color_override("font_hover_color", foreground)
-	button.add_theme_color_override("font_pressed_color", foreground)
+func _open_settings() -> void:
+	_show_dialog("牌桌设置")
+	_add_setting("声音", _sound_enabled, func(enabled: bool) -> void:
+		_sound_enabled = enabled
+		if not enabled:
+			_audio_player.stop()
+			_payout_audio.stop()
+	)
+	_add_setting("发牌与筹码动画", _motion_enabled, func(enabled: bool) -> void:
+		_motion_enabled = enabled
+		if not enabled:
+			table.clear_effects()
+			table.render(game.get_state(), not _hand_open)
+	)
+	_add_setting("每局手动看牌", _manual_peek, func(enabled: bool) -> void:
+		_manual_peek = enabled
+		if not enabled:
+			_open_hand()
+	)
 
-func _panel_style(background: Color, border: Color, radius: int = 7) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = background
-	style.border_color = border
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(radius)
-	style.content_margin_left = 8.0
-	style.content_margin_right = 8.0
-	style.content_margin_top = 5.0
-	style.content_margin_bottom = 5.0
-	return style
+func _add_setting(title: String, enabled: bool, changed: Callable) -> void:
+	var row := HBoxContainer.new()
+	row.add_child(Styles.label(title, 17))
+	row.add_child(Styles.spacer())
+	var button := Styles.button("开启" if enabled else "关闭", "Button")
+	button.custom_minimum_size.x = 88
+	button.toggle_mode = true
+	button.button_pressed = enabled
+	button.accessibility_name = title
+	button.toggled.connect(func(on: bool) -> void:
+		button.text = "开启" if on else "关闭"
+		changed.call(on)
+	)
+	row.add_child(button)
+	_dialog_body.add_child(row)
 
-func _seat_style(background: Color, border: Color, width: int) -> StyleBoxFlat:
-	var style := _panel_style(background, border, 10)
-	style.set_border_width_all(width)
-	style.shadow_color = Color(0, 0, 0, 0.38)
-	style.shadow_size = 9
-	style.shadow_offset = Vector2(0, 4)
-	return style
+func _confirm_restart() -> void:
+	_show_dialog("重新开始挑战？")
+	_dialog_body.add_child(Styles.label("当前牌局将结束，每人恢复 100 底。", 17, Styles.MUTED))
+	var confirm := Styles.button("确认重新开始", "Red", 48)
+	confirm.pressed.connect(_restart)
+	_dialog_body.add_child(confirm)
 
-func _avatar_style(index: int) -> StyleBoxFlat:
-	var colors := [Color("#69c9b5"), Color("#e9bd58"), Color("#db8270"), Color("#79a8d8"), Color("#aa8bd1"), Color("#83b66f")]
-	var color: Color = colors[index % colors.size()]
-	var style := StyleBoxFlat.new()
-	style.bg_color = color
-	style.set_corner_radius_all(17)
-	return style
+func _input(event: InputEvent) -> void:
+	if not _overlay.visible or not event is InputEventKey or not event.pressed:
+		return
+	if event.keycode == KEY_ESCAPE:
+		_close_dialog()
+		get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_TAB:
+		_move_dialog_focus(event.shift_pressed)
+		get_viewport().set_input_as_handled()
+
+func _move_dialog_focus(backward: bool) -> void:
+	var controls := _dialog_body.find_children("*", "Control", true, false).filter(
+		func(control: Control) -> bool: return control.focus_mode == FOCUS_ALL
+	)
+	var offset := -1 if backward else 1
+	var index := controls.find(get_viewport().gui_get_focus_owner())
+	controls[posmod(index + offset, controls.size())].grab_focus()

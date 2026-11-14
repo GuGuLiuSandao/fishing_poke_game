@@ -157,6 +157,7 @@ func start_next_round(seed_value: int) -> bool:
 	var participants := _eligible_indices()
 	if participants.size() <= 1:
 		return false
+	var starter := GameRulesScript.find_eligible_from(next_starter_seat, seats)
 
 	phase = "playing"
 	round_index += 1
@@ -195,7 +196,7 @@ func start_next_round(seed_value: int) -> bool:
 		seat["hand"] = HandRulesScript.evaluate(seat["cards"])
 		seats[index] = seat
 
-	active_seat = GameRulesScript.find_eligible_from(next_starter_seat, seats)
+	active_seat = starter
 	next_starter_seat = -1
 	return active_seat >= 0
 

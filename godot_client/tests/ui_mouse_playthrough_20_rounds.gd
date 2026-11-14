@@ -3,15 +3,6 @@ extends SceneTree
 const TARGET_ROUNDS := 20
 const EXPECTED_TOTAL_CHIPS := 400
 
-const START_BUTTON_PATH := "RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/SetupPanel/StartButton"
-const BET_BUTTON_PATH := "RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/FirstActionRow/BetButton"
-const EAT_BUTTON_PATH := "RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/FirstActionRow/EatButton"
-const FOLD_BUTTON_PATH := "RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/FirstActionRow/FoldButton"
-const CHECK_BUTTON_PATH := "RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/FollowActionRow/CheckButton"
-const DAI_BUTTON_PATH := "RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/FollowActionRow/DaiButton"
-const NEXT_ROUND_BUTTON_PATH := "RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/NextRoundButton"
-const RESTART_BUTTON_PATH := "RootMargin/RootVBox/Content/Sidebar/SideMargin/SideVBox/RestartButton"
-
 var _click_counts := {
 	"开始挑战": 0,
 	"下注": 0,
@@ -31,10 +22,21 @@ func _run() -> void:
 	var main := scene.instantiate()
 	root.add_child(main)
 	await _settle_ui()
+	main._sound_enabled = false
+	main._motion_enabled = false
 
-	if not await _click_control(main.get_node(START_BUTTON_PATH), "开始挑战"):
+	if not await _click_control(main.start_button, "开始挑战"):
 		return
+	await _wait_for_turn(main)
 	if not _require(str(main.game.get_state()["phase"]) != "setup", "点击开始挑战后仍停留在准备阶段"):
+		return
+	if not await _click_control(main.history_button, "牌局记录"):
+		return
+	if not _require(main._overlay.visible, "点击牌局记录后面板未打开"):
+		return
+	if not await _click_control(main._dialog_close, "关闭记录"):
+		return
+	if not _require(not main._overlay.visible, "关闭记录后面板仍然可见"):
 		return
 
 	var completed_rounds := 0
@@ -48,6 +50,7 @@ func _run() -> void:
 		if not _require(safety <= 1200, "鼠标回放超过安全上限"):
 			return
 
+		await _wait_for_turn(main)
 		var state: Dictionary = main.game.get_state()
 		if not _validate_state(main, state):
 			return
@@ -64,7 +67,7 @@ func _run() -> void:
 					print(_round_report_line(completed_rounds, state))
 				if completed_rounds < TARGET_ROUNDS:
 					var previous_round := int(state["round_index"])
-					if not await _click_control(main.get_node(NEXT_ROUND_BUTTON_PATH), "下一局"):
+					if not await _click_control(main.action_bar.next_button, "下一局"):
 						return
 					if not _require(int(main.game.get_state()["round_index"]) == previous_round + 1, "点击下一局后局号没有增加"):
 						return
@@ -75,7 +78,7 @@ func _run() -> void:
 					last_recorded_round = int(state["round_index"])
 					print(_round_report_line(completed_rounds, state))
 				if completed_rounds < TARGET_ROUNDS:
-					if not await _click_control(main.get_node(RESTART_BUTTON_PATH), "重新开始"):
+					if not await _click_restart(main):
 						return
 					last_recorded_round = 0
 					rounds_in_current_match = 0
@@ -90,9 +93,11 @@ func _run() -> void:
 		return
 	if not _validate_state(main, final_state):
 		return
+	root.size = Vector2i(1024, 600)
+	await _settle_ui()
 
 	var final_round_before_restart := int(final_state["round_index"])
-	if not await _click_control(main.get_node(RESTART_BUTTON_PATH), "重新开始"):
+	if not await _click_restart(main):
 		return
 	var restarted: Dictionary = main.game.get_state()
 	if not _require(int(restarted["round_index"]) == 1, "最终重新开始点击未生效"):
@@ -115,36 +120,76 @@ func _click_human_action(main, state: Dictionary, total_round_number: int) -> bo
 	var category := int(hand["category"])
 	var pot := int(state["pot"])
 
-	var button_path := ""
-	var action_name := ""
+	var button: Button
+	var action_name: String
+	var amount := 0
+	var before: int = main.game.structured_action_history.size()
 	if actions.has("bet"):
+		var maximum := int(state["max_bet"])
 		if category >= 10 and int(state["max_bet"]) == pot:
-			button_path = EAT_BUTTON_PATH
-			action_name = "吃"
+			amount = pot
 		elif category >= 6 or total_round_number % 6 == 0:
-			button_path = BET_BUTTON_PATH
-			action_name = "下注"
+			amount = mini(2, maximum)
+		if amount > 0:
+			var input: LineEdit = main.action_bar.amount_input
+			if not await _click_control(input, "输入金额"):
+				return false
+			_type_number(amount)
+			await _settle_ui()
+			if not _require(input.text == str(amount), "下注金额输入框没有收到键盘输入"):
+				return false
+			if not _require(main.game.structured_action_history.size() == before, "输入金额时提前提交了行动"):
+				return false
+			button = main.action_bar.bet_button
+			action_name = "吃" if amount == pot else "下注"
 		else:
-			button_path = FOLD_BUTTON_PATH
+			button = main.action_bar.fold_button
 			action_name = "弃牌"
 	elif actions.has("dai") and category >= 9 and pot <= 24:
-		button_path = DAI_BUTTON_PATH
+		button = main.action_bar.dai_button
 		action_name = "带"
+		amount = int(state["dai_amount"])
 	elif actions.has("check"):
-		button_path = CHECK_BUTTON_PATH
+		button = main.action_bar.check_button
 		action_name = "过牌"
 	else:
 		_fail("真人回合没有可点击的合法按钮")
 		return false
 
-	var before_log: Array = state["action_log"]
-	for attempt in range(3):
-		if not await _click_control(main.get_node(button_path), action_name):
-			return false
-		var after_log: Array = main.game.get_state()["action_log"]
-		if after_log != before_log:
-			return true
-	return _require(false, "连续三次点击%s后对局日志仍未变化" % action_name)
+	if not await _click_control(button, action_name):
+		return false
+	if not _require(main.game.structured_action_history.size() > before, "点击%s后未提交行动" % action_name):
+		return false
+	var event: Dictionary = main.game.structured_action_history[before]
+	return _require(int(event["amount"]) == amount, "%s提交的底数与所选金额不符" % action_name)
+
+func _type_number(amount: int) -> void:
+	var value := str(amount)
+	for index in range(value.length()):
+		var digit := value.unicode_at(index)
+		for pressed in [true, false]:
+			var event := InputEventKey.new()
+			event.keycode = digit as Key
+			event.unicode = digit if pressed else 0
+			event.pressed = pressed
+			root.push_input(event, true)
+
+func _click_restart(main) -> bool:
+	if main.game.phase == "game_over":
+		return await _click_control(main.action_bar.restart_button, "重新开始")
+	if not await _click_control(main.restart_button, "重新开始"):
+		return false
+	var confirm_button: Button = main._dialog_body.get_child(-1)
+	return await _click_control(confirm_button, "确认重新开始")
+
+func _wait_for_turn(main) -> void:
+	var deadline := Time.get_ticks_msec() + 3000
+	while main.game.phase == "playing" and main.game.get_available_actions().is_empty():
+		if Time.get_ticks_msec() > deadline:
+			_fail("等候 Bot 行动超时")
+			break
+		await process_frame
+	await _settle_ui()
 
 func _click_control(control: Control, action_name: String) -> bool:
 	if not _require(control.is_visible_in_tree(), "%s按钮当前不可见" % action_name):
@@ -153,15 +198,14 @@ func _click_control(control: Control, action_name: String) -> bool:
 		return false
 
 	var position := control.get_global_rect().get_center()
-	root.grab_focus()
-	Input.warp_mouse(position)
-	await process_frame
 
 	var motion := InputEventMouseMotion.new()
 	motion.position = position
 	motion.global_position = position
-	Input.parse_input_event(motion)
+	root.push_input(motion, true)
 	await process_frame
+	if not _require(root.gui_get_hovered_control() == control, "%s 按钮被其他控件遮挡" % action_name):
+		return false
 
 	var pressed := InputEventMouseButton.new()
 	pressed.button_index = MOUSE_BUTTON_LEFT
@@ -169,7 +213,7 @@ func _click_control(control: Control, action_name: String) -> bool:
 	pressed.global_position = position
 	pressed.pressed = true
 	pressed.button_mask = MOUSE_BUTTON_MASK_LEFT
-	Input.parse_input_event(pressed)
+	root.push_input(pressed, true)
 	await process_frame
 
 	var released := InputEventMouseButton.new()
@@ -178,10 +222,10 @@ func _click_control(control: Control, action_name: String) -> bool:
 	released.global_position = position
 	released.pressed = false
 	released.button_mask = 0
-	Input.parse_input_event(released)
+	root.push_input(released, true)
 	await _settle_ui()
 
-	_click_counts[action_name] += 1
+	_click_counts[action_name] = _click_counts.get(action_name, 0) + 1
 	return true
 
 func _settle_ui() -> void:

@@ -15,12 +15,12 @@ config/icon="res://assets/icon.svg"
 config/version="0.1.0-mvp"
 
 [display]
-window/size/viewport_width=1600
-window/size/viewport_height=900
-window/size/window_width_override=1600
-window/size/window_height_override=900
-window/size/min_width=1280
-window/size/min_height=720
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/window_width_override=1440
+window/size/window_height_override=810
+window/size/min_width=1024
+window/size/min_height=600
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 

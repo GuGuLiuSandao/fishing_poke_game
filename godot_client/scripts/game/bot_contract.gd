@@ -35,7 +35,9 @@ static func is_legal_decision(specs: Array, decision: Dictionary) -> bool:
 	var spec := find_action(specs, str(decision.get("action", "")))
 	if spec.is_empty():
 		return false
-	var amount := int(decision.get("amount", 0))
+	var amount: Variant = decision.get("amount", 0)
+	if not (amount is int or (amount is float and is_finite(amount) and amount == floor(amount))):
+		return false
 	var exact_amount := int(spec["exact_amount"])
 	if exact_amount >= 0:
 		return amount == exact_amount

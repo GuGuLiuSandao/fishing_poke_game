@@ -21,6 +21,8 @@ var structured_action_history: Array[Dictionary] = []
 var round_message := ""
 var match_message := ""
 var match_result := ""
+var starter_seat_index := -1
+var settlement: Dictionary = {}
 var bot_count := 3
 var human_seat_index := HUMAN_SEAT_INDEX
 
@@ -49,6 +51,8 @@ func reset_to_setup() -> void:
 	round_message = ""
 	match_message = ""
 	match_result = ""
+	starter_seat_index = -1
+	settlement = {}
 	_last_bettor_index = -1
 	_bet_order = 0
 	_next_starter_index = -1
@@ -68,6 +72,8 @@ func start_match(new_bot_count: int = 3, seed_value: int = 0) -> void:
 	round_message = ""
 	match_message = ""
 	match_result = ""
+	starter_seat_index = -1
+	settlement = {}
 	_last_bettor_index = -1
 	_bet_order = 0
 	_next_starter_index = -1
@@ -96,10 +102,30 @@ func apply_bot_decision(decision: Dictionary) -> bool:
 		return false
 	if not bool(seats[active_seat_index]["is_bot"]):
 		return false
-	if not _apply_action(active_seat_index, str(decision.get("action", "")), int(decision.get("amount", 0))):
+	if not _apply_action(active_seat_index, str(decision.get("action", "")), decision.get("amount", 0)):
 		return false
 	_drive_bots_until_human_or_end()
 	return true
+
+func step_bot_turn() -> bool:
+	if phase != "playing" or active_seat_index < 0:
+		return false
+	var index := active_seat_index
+	var seat: Dictionary = seats[index]
+	if not bool(seat["is_bot"]):
+		return false
+	var legal_actions := _legal_action_specs_for(index)
+	var context := _bot_context(index, legal_actions)
+	var decision: Dictionary
+	if _bot_action_provider.is_valid():
+		decision = _bot_action_provider.call(context)
+	else:
+		decision = LegacyGeneBotScript.choose_action(context)
+	if _apply_action(index, str(decision.get("action", "")), decision.get("amount", 0)):
+		return true
+	push_error("Bot %s 返回非法动作：%s" % [seat["name"], decision])
+	var legal_names := BotContractScript.action_names(legal_actions)
+	return _apply_action(index, "fold" if legal_names.has("fold") else "check")
 
 func start_next_round() -> bool:
 	if phase != "round_end":
@@ -107,10 +133,10 @@ func start_next_round() -> bool:
 	_start_round()
 	return true
 
-func player_action(action: String, amount: int = 0) -> bool:
+func player_action(action: String, amount: Variant = 0) -> bool:
 	if phase != "playing" or active_seat_index != human_seat_index:
 		return false
-	if action == "dai" and amount == 0:
+	if action == "dai" and (amount is int or amount is float) and amount == 0:
 		amount = pot
 	if not get_available_actions().has(action):
 		return false
@@ -177,6 +203,7 @@ func get_state() -> Dictionary:
 		"phase": phase,
 		"round_index": round_index,
 		"active_seat_index": active_seat_index,
+		"starter_seat_index": starter_seat_index,
 		"pot": pot,
 		"seats": visible_seats,
 		"action_log": action_log.duplicate(),
@@ -185,6 +212,7 @@ func get_state() -> Dictionary:
 		"max_bet": max_bet,
 		"dai_amount": dai_amount,
 		"round_message": round_message,
+		"settlement": settlement.duplicate(true),
 		"match_message": match_message,
 		"match_result": match_result,
 		"bot_count": bot_count,
@@ -235,10 +263,12 @@ func _start_round() -> void:
 	round_index += 1
 	active_seat_index = -1
 	round_message = ""
+	settlement = {}
 	_last_bettor_index = -1
 	_bet_order = 0
 
 	var participants := _eligible_indices()
+	var scheduled_starter := GameRulesScript.find_eligible_from(_next_starter_index, seats) if _next_starter_index >= 0 else -1
 	for index in range(seats.size()):
 		var seat: Dictionary = seats[index]
 		var participating := participants.has(index)
@@ -272,10 +302,11 @@ func _start_round() -> void:
 		seat["hand"] = HandRulesScript.evaluate(seat["cards"])
 		seats[index] = seat
 
-	if round_index == 1 or _next_starter_index < 0:
+	if round_index == 1 or scheduled_starter < 0:
 		active_seat_index = participants[_rng.randi_range(0, participants.size() - 1)]
 	else:
-		active_seat_index = GameRulesScript.find_eligible_from(_next_starter_index, seats)
+		active_seat_index = scheduled_starter
+	starter_seat_index = active_seat_index
 	_next_starter_index = -1
 	_push_log("%s 先手。" % seats[active_seat_index]["name"])
 	_update_active_status()
@@ -313,12 +344,13 @@ func _legal_action_specs_for(index: int) -> Array[Dictionary]:
 	var seat: Dictionary = seats[index]
 	return BotContractScript.legal_actions(int(seat["chips"]), pot, bool(seat["has_bet"]))
 
-func _apply_action(index: int, action: String, amount: int = 0) -> bool:
+func _apply_action(index: int, action: String, requested_amount: Variant = 0) -> bool:
 	var legal_actions := _legal_action_specs_for(index)
-	var decision := {"action": action, "amount": amount}
+	var decision := {"action": action, "amount": requested_amount}
 	if not BotContractScript.is_legal_decision(legal_actions, decision):
 		return false
 
+	var amount := int(requested_amount)
 	var seat: Dictionary = seats[index]
 	var pot_before := pot
 	var chips_before := int(seat["chips"])
@@ -407,24 +439,11 @@ func _next_active_index(from_index: int) -> int:
 func _drive_bots_until_human_or_end() -> void:
 	if not _auto_drive_bots:
 		return
-	var safety := 0
-	while phase == "playing" and active_seat_index != human_seat_index:
-		safety += 1
-		if safety > 500:
-			push_error("Bot 行动超过安全上限，对局状态可能无法收敛")
+	for turn in range(500):
+		if not step_bot_turn():
 			return
-		var seat: Dictionary = seats[active_seat_index]
-		var legal_actions := _legal_action_specs_for(active_seat_index)
-		var decision: Dictionary
-		if _bot_action_provider.is_valid():
-			decision = _bot_action_provider.call(_bot_context(active_seat_index, legal_actions))
-		else:
-			decision = LegacyGeneBotScript.choose_action(_bot_context(active_seat_index, legal_actions))
-		if not _apply_action(active_seat_index, str(decision.get("action", "")), int(decision.get("amount", 0))):
-			push_error("Bot %s 返回非法动作：%s" % [seat["name"], decision])
-			var legal_names := BotContractScript.action_names(legal_actions)
-			var fallback_action := "fold" if legal_names.has("fold") else "check"
-			_apply_action(active_seat_index, fallback_action, 0)
+	if phase == "playing" and active_seat_index != human_seat_index:
+		push_error("Bot 行动超过安全上限，对局状态可能无法收敛")
 
 func _bot_context(index: int, legal_actions: Array) -> Dictionary:
 	var seat: Dictionary = seats[index]
@@ -517,6 +536,7 @@ func _finish_single_player(active: Array) -> void:
 		winner["chips"] = int(winner["chips"]) + payout
 		pot -= payout
 		winner["status"] = "打跑对手"
+		settlement = {"kind": "uncontested", "seats": [winner_index], "payout": payout}
 		round_message = "%s 打跑其他玩家，收取 %d 底。" % [winner["name"], payout]
 	else:
 		winner["revealed"] = true
@@ -525,6 +545,7 @@ func _finish_single_player(active: Array) -> void:
 			winner["chips"] = int(winner["chips"]) + payout
 			pot = 0
 			winner["status"] = "捡天水成功"
+			settlement = {"kind": "natural_win", "seats": [winner_index], "payout": payout}
 			round_message = "%s 以%s捡天水，收走全部 %d 底。" % [
 				winner["name"],
 				winner["hand"]["name"],
@@ -532,6 +553,7 @@ func _finish_single_player(active: Array) -> void:
 			]
 		else:
 			winner["status"] = "捡天水失败"
+			settlement = {"kind": "natural_miss", "seats": [winner_index], "payout": 0}
 			round_message = "%s 仅有%s，捡天水失败，底池保留。" % [
 				winner["name"],
 				winner["hand"]["name"]
@@ -570,6 +592,7 @@ func _finish_showdown() -> void:
 		var payout := GameRulesScript.winner_payout(pot, int(winner["last_bet"]))
 		winner["chips"] = int(winner["chips"]) + payout
 		winner["status"] = "胜出：%s" % winner["hand"]["name"]
+		settlement = {"kind": "showdown", "seats": winners, "payout": payout}
 		seats[winner_index] = winner
 		pot -= payout
 		_next_starter_index = winner_index
@@ -584,6 +607,7 @@ func _finish_showdown() -> void:
 			if int(seats[index]["last_bet_order"]) > int(seats[starter_index]["last_bet_order"]):
 				starter_index = index
 		_next_starter_index = starter_index
+		settlement = {"kind": "tie", "seats": winners, "payout": 0}
 		var names: PackedStringArray = []
 		for index in winners:
 			names.append(str(seats[index]["name"]))
